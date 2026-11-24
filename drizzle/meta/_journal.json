@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1795356888136,
+      "tag": "0001_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1795356888136,
+      "tag": "0002_saved_blobs_store",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795357817281,
+      "tag": "0003_wizard_prefs",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1795368978490,
+      "tag": "0004_setup_prefs_and_release_info",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1795369846212,
+      "tag": "0005_add_store_name_to_release_info",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1795445546085,
+      "tag": "0006_record_1_0_expected_fingerprint",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795448130093,
+      "tag": "0007_record_1_1_expected_fingerprint",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1795458377050,
+      "tag": "0008_delivery_slot_confirmation_pending_setup_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1795467389523,
+      "tag": "0009_record_1_3_expected_fingerprint",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1795467910822,
+      "tag": "0010_record_1_4_expected_fingerprint",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795468124512,
+      "tag": "0011_record_1_5_expected_fingerprint",
+      "breakpoints": true
+    }
+  ]
+}

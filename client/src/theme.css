@@ -1,0 +1,805 @@
+/* Web-font slot: uncomment the line below and put your font there. A web-font
+   @import must come before the Tailwind import — an @import placed after any
+   other rule is a build error, and it is reported against a line number in the
+   expanded Tailwind output, far past the end of this file, so the message
+   cannot point you at the mistake. */
+/* @import url('https://fonts.googleapis.com/css2?family=Your+Font:wght@400..700&display=swap'); */
+@import "tailwindcss";
+@import "tailwindcss-safe-area";
+
+/* Type scale in rem so the whole scale follows the root font size (system
+   font scaling included). Slightly reduced from the old px scale: the
+   standard density was inflated relative to real phone viewports. */
+@theme {
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.625rem;
+  --text-xl: 1.1875rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.375rem;
+  --text-2xl--line-height: 1.875rem;
+  --text-3xl: 1.75rem;
+  --text-3xl--line-height: 2.125rem;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 3.25rem;
+}
+
+:root {
+  color-scheme: light dark;
+  --bg: #f4f6f5;
+  --surface: #ffffff;
+  --text: #1c2422;
+  --dim: #5f6f6b;
+  --border: #dde5e2;
+  --accent: #0f766e;
+  --accent-soft: #e6f4f1;
+  --warn-bg: #fdf3e0;
+  --warn-text: #8a5410;
+  --warn-border: #e8c98a;
+  --bad: #b3261e;
+  --radius: 14px;
+  --space-surface: var(--surface);
+  --space-surface-alt: var(--surface);
+  --space-muted: var(--dim);
+  --space-border: var(--border);
+  --space-accent: var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101413;
+    --surface: #1a1f1e;
+    --text: #eef3f1;
+    --dim: #9db3ad;
+    --border: #2b3532;
+    --accent: #2dd4bf;
+    --accent-soft: #14332e;
+    --warn-bg: #3a2c12;
+    --warn-text: #f2c979;
+    --warn-border: #6b551f;
+    --bad: #f28b82;
+  }
+}
+
+/* Phone tap targets: at least 32px tall. */
+@layer base {
+  button, [role="button"], select, summary, input:not([type="checkbox"], [type="radio"]) {
+    min-height: 2rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Hover feedback — pointer devices only.
+
+   Every rule in this block sits behind (hover: hover) and (pointer: fine),
+   so it can only ever engage for a mouse or trackpad; touch devices never
+   match and never get sticky hover states. The existing focus styles are
+   untouched. The treatment is deliberately uniform so every active control
+   answers the pointer the same way: bordered controls pick up the accent
+   border, filled controls brighten slightly, and everything interactive
+   gains a soft shadow. Disabled controls are excluded — they aren't
+   active. The header icon is an <img>, not a control, so nothing here
+   applies to it.
+   --------------------------------------------------------------------------- */
+
+@media (hover: hover) and (pointer: fine) {
+  button:not(:disabled),
+  a,
+  label,
+  input,
+  textarea,
+  select {
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      box-shadow 120ms ease,
+      filter 120ms ease;
+  }
+
+  button:not(:disabled):hover,
+  a:hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.16);
+    filter: brightness(1.07);
+  }
+
+  /* Card-style labels (credential types, sending options, checkbox rows):
+     the accent border is the feedback; no lift or brightening. */
+  label:hover {
+    border-color: var(--accent);
+  }
+
+  /* Text fields: border brightens to the accent, like the focus state. */
+  input:not([type="checkbox"], [type="radio"]):hover,
+  textarea:hover,
+  select:hover {
+    border-color: var(--accent);
+  }
+
+  /* Checkboxes and radios get a soft accent halo. */
+  input[type="checkbox"]:not(:disabled):hover,
+  input[type="radio"]:not(:disabled):hover {
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+}
+
+/* The header icon: the adopted Credential Lockbox artwork, shown at the
+   top-left of the app header on every screen at about the height of the
+   step-header text line. It is a plain image — not a link, not a button.
+   It shrinks a step at the two shortest density tiers so the header never
+   grows a row; both the media and container ladders carry the rule, like
+   the rest of the density framework. */
+.header-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 6px;
+}
+
+@media (max-height: 30em) {
+  .header-icon { width: 1.5rem; height: 1.5rem; }
+}
+
+@media (max-height: 23em) {
+  .header-icon { width: 1.25rem; height: 1.25rem; }
+}
+
+@container lockbox (max-height: 30em) {
+  .header-icon { width: 1.5rem; height: 1.5rem; }
+}
+
+@container lockbox (max-height: 23em) {
+  .header-icon { width: 1.25rem; height: 1.25rem; }
+}
+
+/* The bottom nav bar's provenance block (proto-wizard-1.0): version on
+   line one, short build hash on line two. The hash truncates with an
+   ellipsis on narrow screens rather than squeezing the nav buttons
+   below a comfortable tap size; the block never exceeds the buttons'
+   height, so the bar does not grow taller. */
+.provenance-hash {
+  display: block;
+  max-width: 6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 24em) {
+  .provenance-hash { max-width: 3.75rem; }
+}
+
+/* The provenance block is a button (proto-wizard-1.1): it opens the
+   "About this build" screen. It keeps its muted text look — no border,
+   no background — with a faint dotted underline under the version as
+   the tappable affordance. The generic hover block above brightens it
+   on pointer devices like other controls. */
+.provenance-block {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.provenance-block > span:first-child {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--dim);
+  text-underline-offset: 3px;
+}
+
+/* The Setup & reset hub's settings-style list rows (proto-wizard-1.2):
+   plain text rows on the background with hairline dividers — no boxes.
+   The row height is a comfortable tap target at the standard tier and
+   tightens down the density ladder (the per-tier overrides live in the
+   0.8-additions blocks below, media + container like the rest). */
+.hub-row {
+  min-height: 3.25rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+
+/* The password strength meter (proto-wizard-1.2): a slim red→green
+   gradient track directly under the password field (Username & password
+   only), with a pointer whose position is the strength score. Position
+   carries the meaning; the colour only decorates it. While the field is
+   empty the meter is disabled: a muted grey track and the pointer
+   parked at the left end. */
+.strength-meter {
+  position: relative;
+  height: 1rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  display: flex;
+  align-items: center;
+}
+
+.strength-track {
+  height: 0.375rem;
+  width: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #c62f24 0%, #e07b2a 35%, #e3c93f 60%, #3f9e4d 100%);
+}
+
+.strength-meter-empty .strength-track {
+  background: var(--border);
+}
+
+.strength-pointer {
+  position: absolute;
+  top: 50%;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: var(--surface);
+  border: 2px solid var(--dim);
+  transform: translate(-50%, -50%);
+  transition: left 150ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strength-pointer { transition: none; }
+}
+
+/* The key check in a verdict state (proto-wizard-1.2): when a match or
+   mismatch box appears, the screen gains a tall element and something
+   must give. Standing text never gives — the gate banner, the intro,
+   the bypass explanation and the validation messages all stay in every
+   state. What gives is density: this scoped token set tightens the key
+   check's spacing and type one step, exactly the mechanism the density
+   ladder uses for short windows, engaged here by state instead of
+   height. (The wrapper uses display:contents, so the tokens cascade
+   without changing the layout tree.) The Look-closer row also gives
+   way in a verdict state (see App.tsx). */
+.keycheck-verdict {
+  --spacing: 0.185rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.375rem;
+  --text-lg: 0.9375rem;
+  --text-lg--line-height: 1.4375rem;
+  --text-3xl: 1.5rem;
+  --text-3xl--line-height: 1.875rem;
+  --leading-relaxed: 1.5;
+}
+
+.keycheck-verdict .mismatch-cta { min-height: 2.5rem; }
+
+/* The Receipt screen's panel: one stacked row per pair at EVERY density
+   — label left (never wraps), value right-aligned in its own row. A
+   two-column grid let long values (the saved-at date) run into the
+   neighbouring cell and overlap its text. */
+.receipt-dl {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Step 4's "What will be encrypted" preview: strictly one row per field
+   at every density — field name left, size (or "empty — needed") right.
+   A multi-column flow let a name and the next row's status run together. */
+.summary-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Screen headings stay pinned at the top of the content region: if the
+   content ever does scroll, the heading sticks instead of scrolling away
+   with it. (Screen changes also reset the scroll position to the top.) */
+.screen-heading {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+}
+
+/* Once the save receipt exists: at phone widths in the shorter
+   height tiers the encrypted-text box gives way to the receipt (the
+   receipt is the confirmation then, and the text stays one tap away on
+   the "Paste in a Muse chat" button). The compact tier already hid it
+   via density-hide-compact; the single-column receipt is taller, so the
+   give-way now starts one tier earlier. Tall/desktop layouts keep both. */
+@media (max-height: 58em) and (max-width: 40em) {
+  .blob-gives-way { display: none; }
+}
+
+@container lockbox (max-height: 58em) and (max-width: 40em) {
+  .blob-gives-way { display: none; }
+}
+
+/* The sent-items list (item B, proto-wizard-1.3): no capped inner
+   box — a cap sliced the last visible card at the region boundary.
+   The list flows in the content region, which scrolls as a whole, so
+   every card renders whole and every item is reachable. */
+.sent-list {
+  flex-shrink: 0;
+}
+
+/* The encrypted-text field is sized in whole lines only (item B):
+   its height comes from the textarea's rows × line-height. No density
+   tier may give it a fixed height — a fixed height that is not an
+   exact multiple of the line height slices a line mid-glyph. */
+
+/* Nav-label fallback (item G, proto-wizard-1.3): the provenance
+   block normally sits in the nav bar (.provenance-inbar). At the
+   tightest density tier (≤23em effective height) the label plus the
+   buttons cannot fit at usable button sizes, so the label moves out
+   of the bar to the bottom of the screen's content
+   (.provenance-fallback, visible when scrolled to) and the buttons
+   keep the full bar. Both ladders carry the rule, like the rest of
+   the framework. */
+.provenance-fallback {
+  display: none;
+}
+
+@media (max-height: 23em) {
+  .provenance-inbar { display: none; }
+  .provenance-fallback { display: flex; }
+}
+
+@container lockbox (max-height: 23em) {
+  .provenance-inbar { display: none; }
+  .provenance-fallback { display: flex; }
+}
+
+/* The PEM paste field: a bounded editing area at every density (the
+   field itself scrolls); density tiers below shrink it further. */
+#field-private_key {
+  height: 6rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Responsive density framework.
+
+   The app shell is fluid: a slim header, a content area that takes
+   whatever height the window gives it, and a fixed bottom bar (the
+   screen's Back/Next), with the bottom safe-area inset reserved so
+   nothing is clipped by a gesture bar. Density is a ladder of modes
+   driven by the EFFECTIVE viewport height in em, engaged through two
+   standard mechanisms that share one ladder:
+
+   - Media queries: em here follows the browser's initial font size, so
+     these respond to the window height and to browser-level font
+     scaling.
+   - Container queries on the app shell (.lockbox-shell): em here
+     follows the shell's own font size, inherited from the root element,
+     so these also respond when the root font size itself is scaled up
+     (system font scaling presented to the page as a larger root font).
+     Container rules come after media rules, so when the two disagree
+     the font-aware reading — the stricter one — wins.
+
+   Each tier scales the design tokens (Tailwind v4 derives every spacing
+   utility from --spacing and every text utility from the --text-*
+   variables), the fixed min-height button classes, and — at the lower
+   tiers — collapses secondary content (elements carrying the
+   density-hide-* classes: explanations and hints whose controls remain,
+   and duplicated preference toggles; at the shortest tier the key
+   check's Look-closer button and Step 3's card legend also give way —
+   the key details stay reachable from Step 5).
+   The layout reflows live on any window or font change; nothing is
+   measured, reported, or collected.
+
+   Ladder (effective height): standard above 58em; then tiers at 58em,
+   45em, 36em, 30em and 23em. At the default root size those are about
+   928px, 720px, 576px, 480px and 368px; at a 150% root font they are
+   about 1392px, 1080px, 864px, 720px and 552px — so a scaled-up font
+   pulls the same window into a denser tier automatically.
+
+   The Done receipt and Step 4's preview are single-column stacked rows
+   at every tier (see .receipt-dl / .summary-rows above) — they never
+   reflow into columns, so their values can never collide across cells.
+   --------------------------------------------------------------------------- */
+
+.lockbox-shell {
+  container: lockbox / size;
+}
+
+
+@media (max-height: 58em) {
+  :root {
+    --spacing: 0.22rem;
+    --text-xs: 0.75rem;
+    --text-xs--line-height: 1rem;
+    --text-sm: 0.8125rem;
+    --text-sm--line-height: 1.1875rem;
+    --text-base: 0.9375rem;
+    --text-base--line-height: 1.4375rem;
+    --text-lg: 1rem;
+    --text-lg--line-height: 1.5625rem;
+    --text-xl: 1.125rem;
+    --text-xl--line-height: 1.6875rem;
+    --text-2xl: 1.3125rem;
+    --text-2xl--line-height: 1.75rem;
+    --text-3xl: 1.625rem;
+    --text-3xl--line-height: 2rem;
+    --leading-relaxed: 1.55;
+    --leading-tight: 1.22;
+  }
+  .min-h-\[52px\] { min-height: 3rem; }
+  .min-h-\[48px\] { min-height: 2.75rem; }
+  .min-h-\[44px\] { min-height: 2.625rem; }
+  .min-h-\[40px\] { min-height: 2.375rem; }
+  .min-h-\[36px\] { min-height: 2.25rem; }
+  #field-private_key { height: 4.5rem; }
+  .receipt-dl { gap: 0.5rem; }
+  .receipt-card { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+  .summary-box { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+}
+
+@media (max-height: 45em) {
+  :root {
+    --spacing: 0.195rem;
+    --text-xs: 0.6875rem;
+    --text-xs--line-height: 1rem;
+    --text-sm: 0.8125rem;
+    --text-sm--line-height: 1.125rem;
+    --text-base: 0.875rem;
+    --text-base--line-height: 1.375rem;
+    --text-lg: 0.9375rem;
+    --text-lg--line-height: 1.4375rem;
+    --text-xl: 1.0625rem;
+    --text-xl--line-height: 1.5625rem;
+    --text-2xl: 1.25rem;
+    --text-2xl--line-height: 1.625rem;
+    --text-3xl: 1.5rem;
+    --text-3xl--line-height: 1.875rem;
+    --leading-relaxed: 1.5;
+    --leading-tight: 1.2;
+  }
+  .min-h-\[52px\] { min-height: 2.75rem; }
+  .min-h-\[48px\] { min-height: 2.5rem; }
+  .min-h-\[44px\] { min-height: 2.375rem; }
+  .min-h-\[40px\] { min-height: 2.25rem; }
+  .min-h-\[36px\] { min-height: 2.125rem; }
+  .density-hide-compact { display: none; }
+}
+
+@media (max-height: 36em) {
+  :root {
+    --spacing: 0.17rem;
+    --text-xs: 0.6875rem;
+    --text-xs--line-height: 0.9375rem;
+    --text-sm: 0.75rem;
+    --text-sm--line-height: 1.0625rem;
+    --text-base: 0.8125rem;
+    --text-base--line-height: 1.3125rem;
+    --text-lg: 0.875rem;
+    --text-lg--line-height: 1.375rem;
+    --text-xl: 1rem;
+    --text-xl--line-height: 1.5rem;
+    --text-2xl: 1.125rem;
+    --text-2xl--line-height: 1.5rem;
+    --text-3xl: 1.375rem;
+    --text-3xl--line-height: 1.75rem;
+    --leading-relaxed: 1.45;
+    --leading-tight: 1.18;
+  }
+  .min-h-\[52px\] { min-height: 2.5rem; }
+  .min-h-\[48px\] { min-height: 2.375rem; }
+  .min-h-\[44px\] { min-height: 2.25rem; }
+  .min-h-\[40px\] { min-height: 2.125rem; }
+  .min-h-\[36px\] { min-height: 2rem; }
+  .density-hide-tight { display: none; }
+  #field-private_key { height: 5.5rem; }
+  #recipient-input { height: 2.5rem; }
+  .other-text { font-size: var(--text-sm); line-height: 1.45; }
+  .intro-text { font-size: var(--text-base); line-height: 1.5; }
+  .mismatch-cta { font-size: var(--text-sm); line-height: 1.4; }
+  .type-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-height: 30em) {
+  :root {
+    --spacing: 0.145rem;
+    --text-xs: 0.625rem;
+    --text-xs--line-height: 0.875rem;
+    --text-sm: 0.75rem;
+    --text-sm--line-height: 1rem;
+    --text-base: 0.75rem;
+    --text-base--line-height: 1.25rem;
+    --text-lg: 0.8125rem;
+    --text-lg--line-height: 1.3125rem;
+    --text-xl: 0.9375rem;
+    --text-xl--line-height: 1.4375rem;
+    --text-2xl: 1.0625rem;
+    --text-2xl--line-height: 1.4375rem;
+    --text-3xl: 1.25rem;
+    --text-3xl--line-height: 1.625rem;
+    --leading-relaxed: 1.4;
+    --leading-tight: 1.15;
+  }
+  .min-h-\[52px\] { min-height: 2.25rem; }
+  .min-h-\[48px\] { min-height: 2.125rem; }
+  .min-h-\[44px\] { min-height: 2rem; }
+  .min-h-\[40px\] { min-height: 1.875rem; }
+  .min-h-\[36px\] { min-height: 1.75rem; }
+  .density-hide-mini { display: none; }
+  .receipt-dl { gap: 0.25rem; }
+  .receipt-card { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+  #field-private_key { height: 4.5rem; }
+  #recipient-input { height: 2.5rem; }
+  .step-progress-bar { display: none; }
+  .other-text { font-size: var(--text-xs); line-height: 1.4; }
+  .review-dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem 1rem; }
+}
+
+@media (max-height: 23em) {
+  :root {
+    --spacing: 0.10rem;
+    --text-xs: 0.625rem;
+    --text-xs--line-height: 0.875rem;
+    --text-sm: 0.6875rem;
+    --text-sm--line-height: 1rem;
+    --text-base: 0.6875rem;
+    --text-base--line-height: 1.1875rem;
+    --text-lg: 0.75rem;
+    --text-lg--line-height: 1.25rem;
+    --text-xl: 0.875rem;
+    --text-xl--line-height: 1.375rem;
+    --text-2xl: 1rem;
+    --text-2xl--line-height: 1.375rem;
+    --text-3xl: 1.0625rem;
+    --text-3xl--line-height: 1.4375rem;
+    --leading-relaxed: 1.35;
+    --leading-tight: 1.12;
+  }
+  .min-h-\[52px\] { min-height: 1.875rem; }
+  .min-h-\[48px\] { min-height: 1.875rem; }
+  .min-h-\[44px\] { min-height: 1.75rem; }
+  .min-h-\[40px\] { min-height: 1.625rem; }
+  .min-h-\[36px\] { min-height: 1.5rem; }
+  #field-private_key { height: 2.25rem; }
+  #recipient-input { height: 2.125rem; }
+  .density-hide-micro { display: none; }
+  .review-dl { gap: 0.25rem 0.75rem; }
+  .review-card { margin-top: 0.25rem; }
+  .review-dl ul li { font-size: 0.625rem; line-height: 1.3; }
+  .review-dl ul li span { font-size: 0.625rem; line-height: 1.3; }
+  .review-dl dt { line-height: 1.25; }
+  .review-dl button { min-height: 2rem; }
+  .optional-grid label { font-size: 0.625rem; line-height: 1.3; }
+  .fields-col { gap: 0.5rem; }
+  .type-grid { gap: 0.25rem; }
+}
+
+@container lockbox (max-height: 58em) {
+  .density-scope {
+    --spacing: 0.22rem;
+    --text-xs: 0.75rem;
+    --text-xs--line-height: 1rem;
+    --text-sm: 0.8125rem;
+    --text-sm--line-height: 1.1875rem;
+    --text-base: 0.9375rem;
+    --text-base--line-height: 1.4375rem;
+    --text-lg: 1rem;
+    --text-lg--line-height: 1.5625rem;
+    --text-xl: 1.125rem;
+    --text-xl--line-height: 1.6875rem;
+    --text-2xl: 1.3125rem;
+    --text-2xl--line-height: 1.75rem;
+    --text-3xl: 1.625rem;
+    --text-3xl--line-height: 2rem;
+    --leading-relaxed: 1.55;
+    --leading-tight: 1.22;
+  }
+  .min-h-\[52px\] { min-height: 3rem; }
+  .min-h-\[48px\] { min-height: 2.75rem; }
+  .min-h-\[44px\] { min-height: 2.625rem; }
+  .min-h-\[40px\] { min-height: 2.375rem; }
+  .min-h-\[36px\] { min-height: 2.25rem; }
+  #field-private_key { height: 4.5rem; }
+  .receipt-dl { gap: 0.5rem; }
+  .receipt-card { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+  .summary-box { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+}
+
+@container lockbox (max-height: 45em) {
+  .density-scope {
+    --spacing: 0.195rem;
+    --text-xs: 0.6875rem;
+    --text-xs--line-height: 1rem;
+    --text-sm: 0.8125rem;
+    --text-sm--line-height: 1.125rem;
+    --text-base: 0.875rem;
+    --text-base--line-height: 1.375rem;
+    --text-lg: 0.9375rem;
+    --text-lg--line-height: 1.4375rem;
+    --text-xl: 1.0625rem;
+    --text-xl--line-height: 1.5625rem;
+    --text-2xl: 1.25rem;
+    --text-2xl--line-height: 1.625rem;
+    --text-3xl: 1.5rem;
+    --text-3xl--line-height: 1.875rem;
+    --leading-relaxed: 1.5;
+    --leading-tight: 1.2;
+  }
+  .min-h-\[52px\] { min-height: 2.75rem; }
+  .min-h-\[48px\] { min-height: 2.5rem; }
+  .min-h-\[44px\] { min-height: 2.375rem; }
+  .min-h-\[40px\] { min-height: 2.25rem; }
+  .min-h-\[36px\] { min-height: 2.125rem; }
+  .density-hide-compact { display: none; }
+}
+
+@container lockbox (max-height: 36em) {
+  .density-scope {
+    --spacing: 0.17rem;
+    --text-xs: 0.6875rem;
+    --text-xs--line-height: 0.9375rem;
+    --text-sm: 0.75rem;
+    --text-sm--line-height: 1.0625rem;
+    --text-base: 0.8125rem;
+    --text-base--line-height: 1.3125rem;
+    --text-lg: 0.875rem;
+    --text-lg--line-height: 1.375rem;
+    --text-xl: 1rem;
+    --text-xl--line-height: 1.5rem;
+    --text-2xl: 1.125rem;
+    --text-2xl--line-height: 1.5rem;
+    --text-3xl: 1.375rem;
+    --text-3xl--line-height: 1.75rem;
+    --leading-relaxed: 1.45;
+    --leading-tight: 1.18;
+  }
+  .min-h-\[52px\] { min-height: 2.5rem; }
+  .min-h-\[48px\] { min-height: 2.375rem; }
+  .min-h-\[44px\] { min-height: 2.25rem; }
+  .min-h-\[40px\] { min-height: 2.125rem; }
+  .min-h-\[36px\] { min-height: 2rem; }
+  .density-hide-tight { display: none; }
+  #field-private_key { height: 5.5rem; }
+  #recipient-input { height: 2.5rem; }
+  .other-text { font-size: var(--text-sm); line-height: 1.45; }
+  .intro-text { font-size: var(--text-base); line-height: 1.5; }
+  .mismatch-cta { font-size: var(--text-sm); line-height: 1.4; }
+  .type-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container lockbox (max-height: 30em) {
+  .density-scope {
+    --spacing: 0.145rem;
+    --text-xs: 0.625rem;
+    --text-xs--line-height: 0.875rem;
+    --text-sm: 0.75rem;
+    --text-sm--line-height: 1rem;
+    --text-base: 0.75rem;
+    --text-base--line-height: 1.25rem;
+    --text-lg: 0.8125rem;
+    --text-lg--line-height: 1.3125rem;
+    --text-xl: 0.9375rem;
+    --text-xl--line-height: 1.4375rem;
+    --text-2xl: 1.0625rem;
+    --text-2xl--line-height: 1.4375rem;
+    --text-3xl: 1.25rem;
+    --text-3xl--line-height: 1.625rem;
+    --leading-relaxed: 1.4;
+    --leading-tight: 1.15;
+  }
+  .min-h-\[52px\] { min-height: 2.25rem; }
+  .min-h-\[48px\] { min-height: 2.125rem; }
+  .min-h-\[44px\] { min-height: 2rem; }
+  .min-h-\[40px\] { min-height: 1.875rem; }
+  .min-h-\[36px\] { min-height: 1.75rem; }
+  .density-hide-mini { display: none; }
+  .receipt-dl { gap: 0.25rem; }
+  .receipt-card { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+  #field-private_key { height: 4.5rem; }
+  #recipient-input { height: 2.5rem; }
+  .step-progress-bar { display: none; }
+  .other-text { font-size: var(--text-xs); line-height: 1.4; }
+  .review-dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem 1rem; }
+}
+
+@container lockbox (max-height: 23em) {
+  .density-scope {
+    --spacing: 0.10rem;
+    --text-xs: 0.625rem;
+    --text-xs--line-height: 0.875rem;
+    --text-sm: 0.6875rem;
+    --text-sm--line-height: 1rem;
+    --text-base: 0.6875rem;
+    --text-base--line-height: 1.1875rem;
+    --text-lg: 0.75rem;
+    --text-lg--line-height: 1.25rem;
+    --text-xl: 0.875rem;
+    --text-xl--line-height: 1.375rem;
+    --text-2xl: 1rem;
+    --text-2xl--line-height: 1.375rem;
+    --text-3xl: 1.0625rem;
+    --text-3xl--line-height: 1.4375rem;
+    --leading-relaxed: 1.35;
+    --leading-tight: 1.12;
+  }
+  .min-h-\[52px\] { min-height: 1.875rem; }
+  .min-h-\[48px\] { min-height: 1.875rem; }
+  .min-h-\[44px\] { min-height: 1.75rem; }
+  .min-h-\[40px\] { min-height: 1.625rem; }
+  .min-h-\[36px\] { min-height: 1.5rem; }
+  #field-private_key { height: 2.25rem; }
+  #recipient-input { height: 2.125rem; }
+  .density-hide-micro { display: none; }
+  .review-dl { gap: 0.25rem 0.75rem; }
+  .review-card { margin-top: 0.25rem; }
+  .review-dl ul li { font-size: 0.625rem; line-height: 1.3; }
+  .review-dl ul li span { font-size: 0.625rem; line-height: 1.3; }
+  .review-dl dt { line-height: 1.25; }
+  .review-dl button { min-height: 2rem; }
+  .optional-grid label { font-size: 0.625rem; line-height: 1.3; }
+  .fields-col { gap: 0.5rem; }
+  .type-grid { gap: 0.25rem; }
+}
+
+/* ---------------------------------------------------------------------------
+   0.8 additions, same dual mechanism as the ladder above (media blocks
+   first, container blocks after, so the font-aware reading wins):
+
+   - The Setup & reset hub's rows tighten at the compact tiers to keep
+     the whole hub on one screen. (Since proto-wizard-1.2 the hub is a
+     settings-style list and these rules target its .hub-row rows.)
+   - The PEM variant of Step 4 (.pem-step): the optional App ID /
+     Installation ID fields now stack in a single column (their labels
+     can no longer wrap unevenly and misalign the inputs), which makes
+     the screen taller — so at the compact tiers the private-key field
+     shrinks further and the field stack and preview tighten, keeping
+     the "What will be encrypted" preview above the nav bar.
+   --------------------------------------------------------------------------- */
+
+@media (max-height: 58em) {
+  .hub-row { min-height: 3rem; }
+  .pem-step #field-private_key { height: 3.25rem; }
+}
+
+@media (max-height: 45em) {
+  .hub-row { min-height: 2.75rem; }
+  .pem-step #field-private_key { height: 2.75rem; }
+  .pem-step .fields-col { gap: 0.625rem; }
+  .pem-step .summary-box { margin-top: 0.75rem; }
+}
+
+@media (max-height: 36em) {
+  .hub-row { min-height: 2.5rem; }
+  .pem-step #field-private_key { height: 2.5rem; }
+}
+
+@media (max-height: 30em) {
+  .hub-row { min-height: 2.25rem; }
+  .pem-step #field-private_key { height: 2.25rem; }
+}
+
+@media (max-height: 23em) {
+  .hub-row { min-height: 2rem; }
+  .pem-step #field-private_key { height: 2rem; }
+}
+
+@container lockbox (max-height: 58em) {
+  .hub-row { min-height: 3rem; }
+  .pem-step #field-private_key { height: 3.25rem; }
+}
+
+@container lockbox (max-height: 45em) {
+  .hub-row { min-height: 2.75rem; }
+  .pem-step #field-private_key { height: 2.75rem; }
+  .pem-step .fields-col { gap: 0.625rem; }
+  .pem-step .summary-box { margin-top: 0.75rem; }
+}
+
+@container lockbox (max-height: 36em) {
+  .hub-row { min-height: 2.5rem; }
+  .pem-step #field-private_key { height: 2.5rem; }
+}
+
+@container lockbox (max-height: 30em) {
+  .hub-row { min-height: 2.25rem; }
+  .pem-step #field-private_key { height: 2.25rem; }
+}
+
+@container lockbox (max-height: 23em) {
+  .hub-row { min-height: 2rem; }
+  .pem-step #field-private_key { height: 2rem; }
+}
