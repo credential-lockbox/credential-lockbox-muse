@@ -10,15 +10,30 @@ name: QA Gate
 # account approved", not "the maintainer approved". Closing that needs QA to
 # act under an identity of its own.
 #
+# This status is a signal, not the whole merge gate. Anything that can post a
+# commit status can post "QA Gate": an installed app with statuses: write, or a
+# pull_request-triggered workflow added on a PR's own branch (which runs that
+# branch's YAML). Pin the required check to the GitHub Actions app in the
+# ruleset to stop the first; the second stays possible for anyone who can push
+# a branch here. The enforcement that doesn't rest on this file is main's
+# ruleset: one approving review from an account with write access that didn't
+# make the last push (dismissed on every push).
+#
 # "QA Gate" (the status context) is meant to be a required check in main's
 # ruleset: if it is renamed, update the ruleset, or every PR waits on a check
 # that never comes.
 #
 # This repository has no label automation (no pr-labels.yml), so this workflow
-# also does the one label job the gate needs: on a push to the PR it removes
-# QA Approved, since a push invalidates the approval. The maintainer applies
-# it again after re-checking. A removal made with GITHUB_TOKEN doesn't trigger
-# this workflow again; the push itself has already set the status to pending.
+# also does the one label job the gate needs: when a PR is opened, reopened or
+# pushed to, it removes QA Approved, since that commit hasn't been approved. The
+# maintainer applies it again after re-checking. A removal made with
+# GITHUB_TOKEN doesn't trigger this workflow again; the run has already posted
+# pending.
+#
+# Runs can be dropped: a concurrency group keeps one pending run, so a newer
+# run cancels a queued one. If a push's run is dropped, the next label event
+# finds no "QA Gate" status on the head commit yet. It then does what the push's
+# run would have done (pending, remove QA Approved) instead of approving.
 #
 # pull_request_target, not pull_request: it always runs this file as it is on
 # main, so a PR's edits to it can't change its own gate. A change to this file
@@ -40,11 +55,11 @@ on:
 
 permissions:
   statuses: write
-  pull-requests: write # remove QA Approved on a push
-  issues: read # the label events, to see who applied QA Approved
+  # Remove QA Approved, and read the PR's label events (who applied it).
+  pull-requests: write
 
-# One run at a time per PR, in order, so a late run can't overwrite a newer
-# decision.
+# One run at a time per PR. A newer run can cancel a queued one (see the
+# header): the script doesn't rely on every run happening.
 concurrency:
   group: qa-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: false
@@ -73,23 +88,25 @@ jobs:
             echo "QA Gate: $1 on $EVENT_SHA"
           }
 
-          # A new commit can't have been approved yet. Post pending first, then
-          # take off a QA Approved left over from before the push, so the
-          # label no longer shows an approval the commit doesn't have.
+          # A head commit nobody has approved yet: post pending, then take off a
+          # QA Approved left over from an earlier commit, so the label no longer
+          # shows an approval this commit doesn't have.
+          unapproved_head() {
+            post pending "$PENDING"
+            # A 404 means the label isn't on the PR: nothing to remove.
+            # Any other failure fails the job, so it shows.
+            ERR=$(gh api "repos/$REPO/issues/$PR/labels/QA%20Approved" \
+              --method DELETE 2>&1 >/dev/null) || {
+              case "$ERR" in
+                *"HTTP 404"*) echo "QA Approved not on the PR" ;;
+                *) echo "$ERR" >&2; exit 1 ;;
+              esac
+            }
+          }
+
           case "$ACTION" in
             opened|synchronize|reopened)
-              post pending "$PENDING"
-              if [ "$ACTION" = synchronize ]; then
-                # A 404 means the label isn't on the PR: nothing to remove.
-                # Any other failure fails the job, so it shows.
-                ERR=$(gh api "repos/$REPO/issues/$PR/labels/QA%20Approved" \
-                  --method DELETE 2>&1 >/dev/null) || {
-                  case "$ERR" in
-                    *"HTTP 404"*) echo "QA Approved not on the PR" ;;
-                    *) echo "$ERR" >&2; exit 1 ;;
-                  esac
-                }
-              fi
+              unapproved_head
               exit 0
               ;;
           esac
@@ -104,6 +121,16 @@ jobs:
           [ -n "$HEAD" ] || { echo "no head SHA in the API reply"; exit 1; }
           if [ "$HEAD" != "$EVENT_SHA" ]; then
             echo "Stale event: $EVENT_SHA is no longer the head ($HEAD); not changing QA Gate"
+            exit 0
+          fi
+          # No "QA Gate" status on the head yet means the run for its push,
+          # open or reopen never happened (a dropped run): treat the head as
+          # unapproved rather than trust a label from an earlier commit.
+          SEEN=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" \
+            --jq '[.[] | select(.context == "QA Gate")] | length')
+          if [ "$SEEN" = "0" ]; then
+            echo "No QA Gate status on $HEAD yet: treating it as unapproved"
+            unapproved_head
             exit 0
           fi
           if [ "$APPROVED" != "true" ]; then
