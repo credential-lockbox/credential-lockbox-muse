@@ -31,20 +31,21 @@ name: QA Gate
 # pending.
 #
 # Runs can be dropped: a concurrency group keeps one pending run, so a newer
-# run cancels a queued one. Two checks stop a dropped run from leaving a stale
-# approval in force. (1) A head commit with no "QA Gate" status yet had its
-# push run dropped: the label event does what that run would have done
-# (pending, remove QA Approved) instead of approving. (2) An approval counts
-# only if the maintainer's last QA Approved came after the head commit's first
-# "QA Gate" status, so it was given while that commit was the head. A plain
-# push whose label removal failed is caught this way too. (3) It must also
-# come after the PR's last force-push, reopen and base change (from the PR's
-# events): a force-push back to an older commit keeps that commit's old
-# statuses, so (2) alone can't catch it.
-# What's left: someone with push access who gets a "QA Gate" status onto a
-# commit after the maintainer's label (for example, by opening a second PR for
-# it) and then pushes that commit while its run is dropped. That's within the
-# limit above: anyone who can push a branch can post this status directly.
+# run cancels a queued one. Three checks stop a dropped run, or a failed label
+# removal, from leaving a stale approval in force. Each status this workflow
+# posts carries its PR number in target_url (?pr=N), so the checks read only
+# this PR's statuses. (1) A head commit with no "QA Gate" status from this PR
+# yet had its push run dropped: the label event does what that run would have
+# done (pending, remove QA Approved) instead of approving. (2) An approval
+# counts only if the maintainer's last QA Approved came after the head
+# commit's first "QA Gate" status from this PR, so it was given while that
+# commit was this PR's head. A plain push whose label removal failed is caught
+# this way too. (3) It must also come after the PR's last force-push, reopen
+# and base change (from the PR's events): a force-push back to an older commit
+# keeps that commit's old statuses, so (2) alone can't catch it. A base change
+# also runs this workflow at once (the edited event).
+# What's left is within the limit above: anyone who can push a branch here can
+# post a "QA Gate" status, with any target_url, directly.
 #
 # pull_request_target, not pull_request: it always runs this file as it is on
 # main, so a PR's edits to it can't change its own gate. A change to this file
@@ -62,7 +63,8 @@ name: QA Gate
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    # edited: only a base change matters (the script ignores title or body edits).
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
 permissions:
   statuses: write
@@ -87,16 +89,25 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           EVENT_SHA: ${{ github.event.pull_request.head.sha }}
           ACTION: ${{ github.event.action }}
+          BASE_CHANGED: ${{ github.event.changes.base != null }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           MAINTAINER: cmeans
         run: |
           set -euo pipefail
           PENDING="Waiting for QA — add 'QA Approved' label when testing is complete"
+          case "$PR" in ''|*[!0-9]*) echo "unexpected PR number: '$PR'"; exit 1 ;; esac
+          # Every status this PR's runs post ends with this, so the checks
+          # below can tell them from statuses posted for another PR.
+          MARK="?pr=$PR"
           post() {
             gh api "repos/$REPO/statuses/$EVENT_SHA" --method POST \
               -f state="$1" -f description="$2" -f context="QA Gate" \
-              -f target_url="$RUN_URL" > /dev/null
+              -f target_url="$RUN_URL$MARK" > /dev/null
             echo "QA Gate: $1 on $EVENT_SHA"
+          }
+          # An ISO 8601 UTC time as the API gives it, or the job fails.
+          is_time() {
+            [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
           }
 
           # A head commit nobody has approved yet: post pending, then take off a
@@ -120,6 +131,14 @@ jobs:
               unapproved_head
               exit 0
               ;;
+            edited)
+              if [ "$BASE_CHANGED" = true ]; then
+                unapproved_head "QA Approved doesn't count: the PR was retargeted; re-apply it after review"
+              else
+                echo "Edited without a base change: nothing to do"
+              fi
+              exit 0
+              ;;
           esac
 
           # labeled / unlabeled: decide from the PR as it is now, not the event payload.
@@ -134,24 +153,21 @@ jobs:
             echo "Stale event: $EVENT_SHA is no longer the head ($HEAD); not changing QA Gate"
             exit 0
           fi
-          # When the head commit first got a "QA Gate" status: the time it
-          # became this PR's head (its push, open or reopen run), or earlier.
+          # When the head commit first got a "QA Gate" status from this PR: the
+          # time it became this PR's head (its push, open or reopen run).
           # Statuses come newest first, so the last one listed is the oldest.
           # None at all means that run never happened (a dropped run): treat
           # the head as unapproved rather than trust a label from an earlier
           # commit. Captured whole first, so a failed API call fails the job.
-          FIRST=$(gh api --paginate "repos/$REPO/commits/$HEAD/statuses?per_page=100" \
-            --jq '.[] | select(.context == "QA Gate") | .created_at')
-          FIRST=$(printf '%s\n' "$FIRST" | sed -n '$p')
+          STAMPS=$(gh api --paginate "repos/$REPO/commits/$HEAD/statuses?per_page=100" \
+            --jq ".[] | select(.context == \"QA Gate\" and ((.target_url // \"\") | endswith(\"$MARK\"))) | .created_at")
+          FIRST=$(printf '%s\n' "$STAMPS" | sed -n '$p')
           if [ -z "$FIRST" ]; then
-            echo "No QA Gate status on $HEAD yet: treating it as unapproved"
+            echo "No QA Gate status from this PR on $HEAD yet: treating it as unapproved"
             unapproved_head "QA Approved doesn't count: this commit wasn't checked in; re-apply it after review"
             exit 0
           fi
-          case "$FIRST" in
-            ????-??-??T??:??:??Z) ;;
-            *) echo "unexpected status time: '$FIRST'"; exit 1 ;;
-          esac
+          is_time "$FIRST" || { echo "unexpected status time: '$FIRST'"; exit 1; }
           if [ "$APPROVED" != "true" ]; then
             post pending "$PENDING"
             exit 0
@@ -165,13 +181,23 @@ jobs:
                        elif .event == "head_ref_force_pushed" or .event == "reopened" or .event == "base_ref_changed" then "reset - -"
                        else empty end')
           LAST=$(printf '%s\n' "$EVENTS" | sed -n '$p')
-          read -r KIND WHO WHEN <<<"${LAST:-none - -}"
+          if [ -z "$LAST" ]; then
+            # The label is on the PR, but no labeled event is (yet) in the
+            # events API: wait for the next event rather than approve.
+            echo "QA Approved is on the PR but no labeled event was found; not approving"
+            post pending "$PENDING"
+            exit 0
+          fi
+          read -r KIND WHO WHEN <<<"$LAST"
           if [ "$KIND" = reset ]; then
             echo "A force-push, reopen or base change came after the last QA Approved; not approving"
             unapproved_head "QA Approved doesn't count: the PR was force-pushed, reopened or retargeted since; re-apply it after review"
-          elif [ "$KIND" != label ] || [ "$WHO" != "$MAINTAINER" ]; then
-            echo "QA Approved was applied by '${WHO/#-/unknown}', not $MAINTAINER; not approving"
+          elif [ "$WHO" != "$MAINTAINER" ]; then
+            echo "QA Approved was applied by '$WHO', not $MAINTAINER; not approving"
             post pending "QA Approved counts only when $MAINTAINER applies it"
+          elif ! is_time "$WHEN"; then
+            echo "unexpected label time: '$WHEN'"
+            exit 1
           elif [[ ! "$WHEN" > "$FIRST" ]]; then
             # ISO 8601 UTC times sort as strings.
             echo "QA Approved ($WHEN) predates $HEAD's first QA Gate status ($FIRST); not approving"
