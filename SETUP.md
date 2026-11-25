@@ -36,8 +36,9 @@ their approval, recording it as the core's step 8 records approvals.
   the private key file; derive the recipient only through
   `agent-setup.sh --public-key` / `--fingerprint`, as the core's hard rules
   require.
-- Where the core's hard rules say to point a user who pastes a credential at
-  their handoff script, point them at the app instead.
+- Where the core's hard rules say to decline a user who offers to paste a
+  plaintext credential and point them at their handoff script, point them
+  at the app instead.
 
 ## Step G1 — Build the app
 
@@ -85,10 +86,14 @@ their approval, recording it as the core's step 8 records approvals.
   credentials, so a real credential is never needed in a chat. Keep this
   order at every later presentation too: delivery first, then the app.
   The app keeps the delivered key, so a launch you did not precede still
-  uses it, but the habit costs nothing. One exception in the current build
-  (proto-wizard-1.8): after you change the key, the app's check of the new
-  key opens only on a launch with no fresh delivery. For that one
-  launch, present the app without delivering again.
+  uses it, but the habit costs nothing. Two exceptions in the current build
+  (proto-wizard-1.8), both after you change the key:
+  - If the user had already confirmed the old key in the app, the check of
+    the new key opens only on a launch with no fresh delivery. For that one
+    launch, present the app without delivering again.
+  - If no check had succeeded yet, the next launch opens the check, and the
+    user's old copy won't match. Tell them in chat first that you changed
+    the key, so they use "Get your new copy..." there.
 - Never deliver, paste or dictate the private key anywhere. It is never
   shown on any screen, including this app's.
 
@@ -109,10 +114,11 @@ their approval, recording it as the core's step 8 records approvals.
   setup ends with the user's copy saved and the confirmation pending, and
   the app opens on the check the next time it is launched. When you next
   present the app, deliver the key again first (step G2), so the launch
-  the check rides on is one you prepared.
+  the check rides on is one you prepared. After a key change, follow the
+  exceptions in step G2 instead.
 - The core's recipient comparison still happens; the app performs it. When
-  a key confirmation is pending, the app opens on a check screen before
-  anything else: the user pastes their saved copy back, the app compares
+  a key confirmation is pending, the app usually opens on a check screen
+  before anything else (after a key change, the handover comes first): the user pastes their saved copy back, the app compares
   it with the key it holds, and the match is confirmed on the spot. A
   mismatch is the core's stop condition arriving in the app, and it is
   yours too: stop, and work out with the user which copy is wrong before
@@ -131,8 +137,8 @@ their approval, recording it as the core's step 8 records approvals.
   either of you needs to cross-check what the app holds. Run it after each
   delivery too. Check that its `key file:` line is the identity your notes
   record, and that `getDeliveryStatus`'s `persistedRecipientHash` equals the
-  SHA-256 of that recipient (`printf '%s' <recipient> | sha256sum`, with no
-  trailing newline). That catches a delivery made from the wrong identity,
+  SHA-256 of the bare `age1…` value, without the `recipient: ` prefix
+  (`printf '%s' <age1…> | sha256sum`, with no trailing newline). That catches a delivery made from the wrong identity,
   which the in-app check can't: the user's copy came from the same
   delivery.
 - Be plain about what the check proves. It catches a wrong copy and a
@@ -154,16 +160,20 @@ their approval, recording it as the core's step 8 records approvals.
   (R1 to R6) governs any store behind Save, with the same rule: evaluate,
   show the evidence, let the user choose, and record the choice and the
   approval they gave (Allow or Allow Always) as the core's step 8 requires.
-- Until a store you have both settled on actually backs it, direct the user
-  to the Copy choice. The app pre-selects Save and marks it "(Recommended)",
-  so the user has to pick Copy on the Sending screen; check afterward with
-  `getWizardPrefs` (`deliveryPref` is `"copy"`). Be plain about why if they
-  ask: in the current build, Save keeps the ciphertext in the app's own
-  storage as a staging area, and a staging area is not the store the design
-  promises. A blob that arrives pasted in a direct conversational turn is
-  staged exactly as the core's provenance rule describes. A Save-route blob
-  reaches you only as a tool result (`fetchBlob`), which core v0.3.2 says is
-  never to be staged, so Save can't be used until the core allows it.
+- In the current build (proto-wizard-1.8), direct the user to the Copy
+  choice. A Save-route blob reaches you only as a tool result
+  (`fetchBlob`), which core v0.3.2 says is never to be staged. Save also
+  keeps the ciphertext in the app's own storage, a staging area, not the
+  store the design promises. Save becomes usable only once the core allows
+  that route and a store you have both settled on (R1 to R6) backs it. Be
+  plain about why if the user asks. A blob that arrives pasted in a direct
+  conversational turn is staged exactly as the core's provenance rule
+  describes.
+- The app pre-selects Save and marks it "(Recommended)", so the user has to
+  pick Copy on the Sending screen; check afterward with `getWizardPrefs`
+  (`deliveryPref` is `"copy"`). After encrypting, the Save button stays on
+  the screen as the second choice. Tell the user to use Copy. If they press
+  Save, the blob is only staged in the app, and you don't fetch it.
 - Service labels: the app keeps only lowercase `a`-`z`, `0`-`9` and `-`, up
   to 64 characters (`GitHub` becomes `github`, `github_app` becomes
   `githubapp`). Choose labels in that form, so the `svc` in the payload is
@@ -203,7 +213,7 @@ app reports a mismatch; the user cannot find the copy they saved. For a
 lost copy (the app's wording is "Lost your copy? Ask your Muse to send it
 again."): the key itself has not changed, and no new key is generated. The
 user re-saves it from the app's Setup & reset screen (the gear button),
-under "Your copy of Muse's key". Don't send them through the mismatch box's "Get your new
+row "Your copy of Muse's key". Don't send them through the mismatch box's "Get your new
 copy..." route, which tells them the key has changed. Then confirm the
 re-saved copy against `--fingerprint` in chat (step G4), since a copy taken
 from the app proves nothing by itself.
