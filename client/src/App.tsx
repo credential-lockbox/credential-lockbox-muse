@@ -413,7 +413,7 @@ export function App() {
   // Provenance self-check: the page compares its own build fingerprint
   // against the expected value recorded in the stored release info. A
   // mismatch means this page differs from the build it was installed
-  // from — an honesty label for deliberate customisation, not a
+  // from — an honesty label for deliberate customization, not a
   // security claim.
   const isCustomBuild = release ? release.latestVersion !== BUILD_FINGERPRINT : false;
 
@@ -1758,7 +1758,7 @@ export function App() {
                 group headings, and one chevron on every row that goes
                 somewhere. The web row leaves the app, so it keeps its
                 ↗ instead. Reset sits in its own group at the bottom as
-                a plain row in the danger colour. */}
+                a plain row in the danger color. */}
             <h2 className="mt-5 text-sm font-semibold text-[var(--dim)]">Your key &amp; sending</h2>
             <div className="mt-1 divide-y divide-[var(--border)] border-y border-[var(--border)]">
               <button
@@ -1927,7 +1927,7 @@ export function App() {
             {/* Stacked rows (item B): the item's name on its own
                 line, then the hash on its own line, then the date on
                 its own line — nothing is squeezed onto one line or
-                ellipsised, and the list flows in the content region,
+                ellipsized, and the list flows in the content region,
                 which scrolls as a whole, so every card renders whole
                 and every item is reachable. */}
             <ul className="sent-list mt-3 flex flex-col gap-2">
@@ -2135,7 +2135,7 @@ export function App() {
                       // always visible for this credential type only.
                       // Position carries the meaning — the pointer
                       // travels the red→green track as the length/variety
-                      // score rises. Empty field: grey track, pointer
+                      // score rises. Empty field: gray track, pointer
                       // parked at the left end. It never blocks Next.
                       <div
                         className={`strength-meter mt-3${value === "" ? " strength-meter-empty" : ""}`}
