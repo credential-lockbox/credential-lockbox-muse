@@ -216,6 +216,42 @@ words.
   `consume.py` reads the same way — and needs its own key confirmation
   (the core's steps 3 and 4) before first use.
 
+## Rotation with the app (the user's side of the core's `ROTATION.md` step 3)
+
+The core's `ROTATION.md` governs a rotation, as written. The decision to
+rotate, the new keypair (`--rotate`), the private key, rewrapping (step 4)
+and retiring the old key (step 5) stay on your side. The app never touches
+a private key. Only the user's side of step 3 changes. The core has the
+user replace their `handoff-<name>.age` and run the script's fingerprint
+check. With the app, it goes like this:
+
+- **Before you deliver,** tell the user in chat that you are replacing
+  your key as planned (the core's step 2 already says to tell them first).
+  Tell them the app will show a key-change screen, and that they will save
+  their copy of the new key in their password manager, in place of the old
+  copy.
+- **After step 3's `--fingerprint` check on your side,** deliver the new
+  recipient with `setDelivery`, passing only the bare `age1…` line, as in
+  step G2. Then do step G4's cross-check: `persistedRecipientHash` from
+  `getDeliveryStatus` must equal the SHA-256 of the new bare `age1…` value.
+  From that moment, the app encrypts to the new key on every launch.
+- **Present the app.** The user saves their copy of the new key on the
+  key-change screen, then checks it in the app. In the current build
+  (proto-wizard-1.8), follow step G2's exceptions after a key change. If
+  the user had confirmed the old key, present the launch for the check
+  without delivering again. If no check had succeeded yet, the app opens
+  on the check. The user's old copy doesn't match, and the mismatch box
+  offers "Has your Muse given you a new key, or rotated its key? Get your
+  new copy...". That route is right here, because you announced the
+  change.
+- **A mismatch is a stop,** as in the core's step 3. Work out with the user
+  which copy is wrong, and never wave it through. When the in-app check
+  succeeds, record in your notes that the user confirmed the new key, as
+  step 3 asks. From here on, new blobs are made for the new key.
+- **Blobs the user pasted earlier** were staged by you, so rewrapping them
+  (step 4) is yours, as the core describes. The app holds no blobs you
+  rely on (step G5).
+
 ## Stop conditions specific to the app
 
 In addition to the core's: the app refuses a delivered recipient; the app
