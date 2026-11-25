@@ -99,6 +99,13 @@
       "when": 1795633552706,
       "tag": "0014_record_1_8_expected_fingerprint",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1795638818340,
+      "tag": "0015_pin_hardening_1_9",
+      "breakpoints": true
     }
   ]
 }
