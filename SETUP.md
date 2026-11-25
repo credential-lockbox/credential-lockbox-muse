@@ -10,9 +10,11 @@ This document does not replace the core instructions. Work from a clone of
 https://github.com/credential-lockbox/credential-lockbox and follow its
 `SETUP.md` throughout: its hard rules, stop conditions, store checklist and
 record-keeping all apply exactly as written. What follows replaces only the
-parts of its steps 3 to 5 that put a script in the user's hands. Where this
+parts of its steps 3 to 6 that put a script in the user's hands. Where this
 document and the core `SETUP.md` disagree about the user's side, this
-document governs; about everything else, the core governs.
+document governs; about everything else, the core governs. This document
+was checked against core release v0.3.2. If a newer core release renumbers
+its steps, stop and ask the user before relying on the step numbers here.
 
 ## Before you start
 
@@ -26,6 +28,8 @@ document governs; about everything else, the core governs.
   the private key file; derive the recipient only through
   `agent-setup.sh --public-key` / `--fingerprint`, as the core's hard rules
   require.
+- Where the core's hard rules say to point a user who pastes a credential at
+  their handoff script, point them at the app instead.
 
 ## Step G1 — Build the app
 
@@ -56,10 +60,15 @@ document governs; about everything else, the core governs.
   secret and may travel through chat, but the app has a designed channel
   for it: call the app's `setDelivery` action — a server action of the
   Space you built, invoked through the same artifact tooling you built it
-  with. A delivery waits in the app's delivery slot until the app takes it
-  up at a launch, which it does exactly once. Calling `setDelivery` again
-  replaces a delivery still waiting; it does not stack. Status checks on
-  the slot show only the delivered key's hash, never the key. If
+  with. Pass it only the bare `age1…` line: `--public-key` also prints
+  instructions for saving a key file beside the handoff script, which are
+  for the script route, not for the app user. A delivery waits in the app's
+  delivery slot until the app takes it up at a launch, which it does
+  exactly once. From the moment `setDelivery` succeeds, the app also keeps
+  that key and encrypts to it on every later launch. Calling `setDelivery`
+  again replaces both the waiting delivery and the kept key; it does not
+  stack. `getDeliveryStatus` shows only hashes, never a key: the waiting
+  delivery's, and the kept key's (`persistedRecipientHash`). If
   `setDelivery` refuses what you gave it, stop and check what you derived —
   do not retry with variations.
 - Only once a delivery is waiting, present the app to the user in chat,
@@ -67,9 +76,11 @@ document governs; about everything else, the core governs.
   it is: the private page inside Muse where they will encrypt
   credentials, so a real credential is never needed in a chat. Keep this
   order at every later presentation too: delivery first, then the app.
-  The app keeps the delivered key once it has taken it up, so a launch you
-  did not precede still stands on it — but the habit costs nothing and is
-  what a changed key requires.
+  The app keeps the delivered key, so a launch you did not precede still
+  uses it, but the habit costs nothing. One exception in the current build
+  (proto-wizard-1.8): after you change the key, the app's check of the new
+  key opens only on a launch with no fresh delivery. For that one
+  launch, present the app without delivering again.
 - Never deliver, paste or dictate the private key anywhere. It is never
   shown on any screen, including this app's.
 
@@ -94,10 +105,13 @@ document governs; about everything else, the core governs.
 - The core's recipient comparison still happens; the app performs it. When
   a key confirmation is pending, the app opens on a check screen before
   anything else: the user pastes their saved copy back, the app compares
-  its hash against the delivered key's, and the match is confirmed on the
-  spot. A mismatch blocks the app there — that is the core's stop condition
-  arriving in the app, and it is yours too: stop, and work out with the user
-  which copy is wrong before going on. Never suggest continuing past a
+  it with the key it holds, and the match is confirmed on the spot. A
+  mismatch is the core's stop condition arriving in the app, and it is
+  yours too: stop, and work out with the user which copy is wrong before
+  going on. The app doesn't enforce that by itself. The user can clear the
+  field and continue without checking, and the mismatch box offers "Get
+  your new copy...". Tell the user to use that only after you have told
+  them in chat that you changed the key. Never suggest continuing past a
   mismatch "just this once", and never ask the user to paste a credential
   instead.
 - The user may choose "Continue without checking the key" in the app; the
@@ -106,14 +120,22 @@ document governs; about everything else, the core governs.
   unconfirmed in your summary.
 - Your side of the comparison stays available: `agent-setup.sh
   --fingerprint` prints the recipient from the identity file whenever
-  either of you needs to cross-check what the app holds.
+  either of you needs to cross-check what the app holds. Run it after each
+  delivery too. Check that its `key file:` line is the identity your notes
+  record, and that `getDeliveryStatus`'s `persistedRecipientHash` equals the
+  SHA-256 of that recipient (`printf '%s' <recipient> | sha256sum`, with no
+  trailing newline). That catches a delivery made from the wrong identity,
+  which the in-app check can't: the user's copy came from the same
+  delivery.
 - Be plain about what the check proves. It catches a wrong copy and a
-  mistyped one, and it confirms that a recovered copy matches. It cannot,
-  by itself, stop a session that sets out to swap the key. What decides is
-  the user pasting the copy they saved, from where they saved it (their
-  password manager, not something just copied), and a mismatch being
-  treated as a stop. Say so if the user asks how far the check protects
-  them.
+  mistyped one. A copy the user re-saves from the app matches by
+  construction, so it proves nothing on its own. Confirm a re-saved copy
+  by comparing it with `--fingerprint` in chat, as the core's step 4
+  does. The check can't, by itself, stop a session that sets out to swap
+  the key. What decides is the user pasting the copy they saved, from where
+  they saved it (their password manager, not something just copied), and a
+  mismatch being treated as a stop. Say so if the user asks how far the
+  check protects them.
 
 ## Step G5 — Sending: the user's choice (the core's step 6, brought forward)
 
@@ -125,11 +147,19 @@ document governs; about everything else, the core governs.
   show the evidence, let the user choose, and record the choice and the
   approval they gave (Allow or Allow Always) as the core's step 8 requires.
 - Until a store you have both settled on actually backs it, direct the user
-  to the Copy choice. Be plain about why if they ask: in the current build,
-  Save keeps the ciphertext in the app's own storage as a staging area, and
-  a staging area is not the store the design promises. A blob that arrives
-  pasted in a direct conversational turn is staged exactly as the core's
-  provenance rule describes.
+  to the Copy choice. The app pre-selects Save and marks it "(Recommended)",
+  so the user has to pick Copy on the Sending screen; check afterward with
+  `getWizardPrefs` (`deliveryPref` is `"copy"`). Be plain about why if they
+  ask: in the current build, Save keeps the ciphertext in the app's own
+  storage as a staging area, and a staging area is not the store the design
+  promises. A blob that arrives pasted in a direct conversational turn is
+  staged exactly as the core's provenance rule describes. A Save-route blob
+  reaches you only as a tool result (`fetchBlob`), which core v0.3.2 says is
+  never to be staged, so Save can't be used until the core allows it.
+- Service labels: the app keeps only lowercase `a`-`z`, `0`-`9` and `-`, up
+  to 64 characters (`GitHub` becomes `github`, `github_app` becomes
+  `githubapp`). Choose labels in that form, so the `svc` in the payload is
+  the label you expect.
 
 ## Step G6 — Test with a dummy credential (the core's step 5)
 
@@ -152,16 +182,20 @@ document governs; about everything else, the core governs.
   you can reopen it for them any time they ask; sending a credential from
   then on is: open the app, encrypt, and it reaches you by the route they
   chose. The command-line script from the core repository remains available
-  to them as an optional utility — another way to encrypt, producing
-  identical ciphertext — and needs its own key confirmation (the core's
-  steps 3 and 4) before first use.
+  to them as an optional utility — another way to encrypt, producing the
+  same format (age, one X25519 recipient, base64 on one line), which
+  `consume.py` reads the same way — and needs its own key confirmation
+  (the core's steps 3 and 4) before first use.
 
 ## Stop conditions specific to the app
 
 In addition to the core's: the app refuses a delivered recipient; the app
 build fails or comes up without its server actions; the key check in the
-app reports a mismatch; the user cannot find the copy they saved (deliver
-the key again, step G2, and have them re-save their copy from the app —
-its own wording is "Lost your copy? Ask your Muse to send it again."
-The key itself has not changed, and no new key is generated for a lost
-copy).
+app reports a mismatch; the user cannot find the copy they saved. For a
+lost copy (the app's wording is "Lost your copy? Ask your Muse to send it
+again."): the key itself has not changed, and no new key is generated. The
+user re-saves it from the app's Setup & reset screen (the gear button),
+under "Your copy of Muse's key". Don't send them through the mismatch box's "Get your new
+copy..." route, which tells them the key has changed. Then confirm the
+re-saved copy against `--fingerprint` in chat (step G4), since a copy taken
+from the app proves nothing by itself.
