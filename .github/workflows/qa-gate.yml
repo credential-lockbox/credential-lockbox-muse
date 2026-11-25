@@ -35,11 +35,16 @@ name: QA Gate
 # approval in force. (1) A head commit with no "QA Gate" status yet had its
 # push run dropped: the label event does what that run would have done
 # (pending, remove QA Approved) instead of approving. (2) An approval counts
-# only if the maintainer's last QA Approved came after the PR's last
-# force-push and last reopen (from the PR's events): a force-push back to an
-# older commit keeps that commit's old statuses, so (1) alone can't catch it.
-# What's left: a plain push that lands on a commit already carrying statuses
-# from elsewhere (another PR or branch) and whose run is dropped. That's rare.
+# only if the maintainer's last QA Approved came after the head commit's first
+# "QA Gate" status, so it was given while that commit was the head. A plain
+# push whose label removal failed is caught this way too. (3) It must also
+# come after the PR's last force-push, reopen and base change (from the PR's
+# events): a force-push back to an older commit keeps that commit's old
+# statuses, so (2) alone can't catch it.
+# What's left: someone with push access who gets a "QA Gate" status onto a
+# commit after the maintainer's label (for example, by opening a second PR for
+# it) and then pushes that commit while its run is dropped. That's within the
+# limit above: anyone who can push a branch can post this status directly.
 #
 # pull_request_target, not pull_request: it always runs this file as it is on
 # main, so a PR's edits to it can't change its own gate. A change to this file
@@ -129,40 +134,48 @@ jobs:
             echo "Stale event: $EVENT_SHA is no longer the head ($HEAD); not changing QA Gate"
             exit 0
           fi
-          # No "QA Gate" status on the head yet means the run for its push,
-          # open or reopen never happened (a dropped run): treat the head as
-          # unapproved rather than trust a label from an earlier commit.
-          # The combined status holds the latest status per context, across
-          # all of them (one page is enough for any number of older statuses).
-          SEEN=$(gh api "repos/$REPO/commits/$HEAD/status" \
-            --jq '[.statuses[] | select(.context == "QA Gate")] | length')
-          case "$SEEN" in
-            ''|*[!0-9]*) echo "unexpected statuses reply: '$SEEN'"; exit 1 ;;
-            0)
-              echo "No QA Gate status on $HEAD yet: treating it as unapproved"
-              unapproved_head "QA Approved removed: this commit wasn't checked in; re-apply it after review"
-              exit 0
-              ;;
+          # When the head commit first got a "QA Gate" status: the time it
+          # became this PR's head (its push, open or reopen run), or earlier.
+          # Statuses come newest first, so the last one listed is the oldest.
+          # None at all means that run never happened (a dropped run): treat
+          # the head as unapproved rather than trust a label from an earlier
+          # commit. Captured whole first, so a failed API call fails the job.
+          FIRST=$(gh api --paginate "repos/$REPO/commits/$HEAD/statuses?per_page=100" \
+            --jq '.[] | select(.context == "QA Gate") | .created_at')
+          FIRST=$(printf '%s\n' "$FIRST" | sed -n '$p')
+          if [ -z "$FIRST" ]; then
+            echo "No QA Gate status on $HEAD yet: treating it as unapproved"
+            unapproved_head "QA Approved doesn't count: this commit wasn't checked in; re-apply it after review"
+            exit 0
+          fi
+          case "$FIRST" in
+            ????-??-??T??:??:??Z) ;;
+            *) echo "unexpected status time: '$FIRST'"; exit 1 ;;
           esac
           if [ "$APPROVED" != "true" ]; then
             post pending "$PENDING"
             exit 0
           fi
-          # The PR's events, oldest first: who applied QA Approved last, and
-          # whether a force-push or reopen came after it. Captured whole
-          # first, so a failed API call fails the job instead of reading as
-          # no one.
+          # The PR's events, oldest first: who applied QA Approved last and
+          # when, and whether a force-push, reopen or base change came after
+          # it. Captured whole first, so a failed API call fails the job
+          # instead of reading as no one.
           EVENTS=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
-            --jq '.[] | if .event == "labeled" and .label.name == "QA Approved" then "label \(.actor.login)"
-                       elif .event == "head_ref_force_pushed" or .event == "reopened" then "reset -"
+            --jq '.[] | if .event == "labeled" and .label.name == "QA Approved" then "label \(.actor.login) \(.created_at)"
+                       elif .event == "head_ref_force_pushed" or .event == "reopened" or .event == "base_ref_changed" then "reset - -"
                        else empty end')
           LAST=$(printf '%s\n' "$EVENTS" | sed -n '$p')
-          if [ "$LAST" = "label $MAINTAINER" ]; then
-            post success "QA testing completed"
-          elif [ "${LAST%% *}" = reset ]; then
-            echo "A force-push or reopen came after the last QA Approved; not approving"
-            unapproved_head "QA Approved removed: the PR was force-pushed or reopened since; re-apply it after review"
-          else
-            echo "QA Approved was applied by '${LAST#label }', not $MAINTAINER; not approving"
+          read -r KIND WHO WHEN <<<"${LAST:-none - -}"
+          if [ "$KIND" = reset ]; then
+            echo "A force-push, reopen or base change came after the last QA Approved; not approving"
+            unapproved_head "QA Approved doesn't count: the PR was force-pushed, reopened or retargeted since; re-apply it after review"
+          elif [ "$KIND" != label ] || [ "$WHO" != "$MAINTAINER" ]; then
+            echo "QA Approved was applied by '${WHO/#-/unknown}', not $MAINTAINER; not approving"
             post pending "QA Approved counts only when $MAINTAINER applies it"
+          elif [[ ! "$WHEN" > "$FIRST" ]]; then
+            # ISO 8601 UTC times sort as strings.
+            echo "QA Approved ($WHEN) predates $HEAD's first QA Gate status ($FIRST); not approving"
+            unapproved_head "QA Approved doesn't count: it was applied before this commit; re-apply it after review"
+          else
+            post success "QA testing completed"
           fi
