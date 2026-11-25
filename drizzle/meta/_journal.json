@@ -92,6 +92,13 @@
       "when": 1795631829459,
       "tag": "0013_record_1_7_expected_fingerprint",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1795633552706,
+      "tag": "0014_record_1_8_expected_fingerprint",
+      "breakpoints": true
     }
   ]
 }

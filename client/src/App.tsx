@@ -1,4 +1,4 @@
-// Credential Lockbox — Wizard Prototype (proto-wizard-1.7).
+// Credential Lockbox — Wizard Prototype (proto-wizard-1.8).
 //
 // Two wizards:
 //   SETUP — Introduction → Your copy of the key → Sending to Muse
@@ -19,14 +19,18 @@
 //
 // Muse's key reaches the page through the Delivery Slot: a one-shot
 // server-side record Muse writes before presenting the page. At
-// launch the app consumes it — a delivered key whose hash differs from
-// an existing confirmed pin is a key change (this sitting shows the
-// handover and sets confirmation pending); with no pin yet, a delivered
-// key is not a change, and a pending confirmation opens the key check
-// as a gate instead. A delivered service label pre-fills Encrypt
-// Step 1. The delivered recipient is also persisted
-// server-side, so on later launches the consume path returns the
-// persisted key: the app encrypts to the delivered key every time.
+// launch the app consumes it. A key change is judged against the key
+// the app will actually use — the recipient resolved at this launch,
+// whether delivered this launch or persisted from an earlier one: when
+// no confirmation is already pending and that key's hash differs from
+// an existing confirmed pin, it is a key change (this sitting shows the
+// handover and sets confirmation pending). When a confirmation is
+// already pending, the key check opens as a gate instead. With no pin
+// yet, a differing key is not a change, and a pending confirmation
+// opens the key check as a gate (the G4 ruling). A delivered service
+// label pre-fills Encrypt Step 1. The delivered recipient is also
+// persisted server-side, so on later launches the consume path returns
+// the persisted key: the app encrypts to the delivered key every time.
 // There is NO built-in fallback recipient — when no key has ever been
 // delivered, the app shows a waiting state and cannot encrypt.
 //
@@ -51,13 +55,12 @@ const FIELDS = actionFields<typeof Actions>();
  * whenever the shipped page changes. A fingerprint change by itself no
  * longer re-runs Setup or the key check — that trigger is the Setup
  * flow's own version (setupVersion, held in the release info). */
-const BUILD_FINGERPRINT = "proto-wizard-1.7";
+const BUILD_FINGERPRINT = "proto-wizard-1.8";
 
 /** Short build hash shown on the provenance line's second line: the
- * first 8 hex characters of the SHA-256 of BUILD_FINGERPRINT, typed in
- * by hand whenever the fingerprint is bumped (nothing computes it at
- * build time). It identifies the release, not the code: see #4. */
-const BUILD_HASH = "a0a1fc6f";
+ * first 8 hex characters of the SHA-256 of the build fingerprint,
+ * computed at build time. */
+const BUILD_HASH = "1b3d4ed9";
 
 /** Fallback for the release info's setupVersion before it loads (and
  * for an install whose release info predates the field). */
@@ -411,12 +414,11 @@ export function App() {
   // info the agent maintains. Setup re-runs at launch only when the
   // user's completed setupVersion differs from this.
   const currentSetupVersion = release?.setupVersion ?? FALLBACK_SETUP_VERSION;
-  // Provenance self-check: the page compares its own version
-  // (BUILD_FINGERPRINT) with the latest release version Muse recorded in
-  // the release info. A mismatch means the two version strings differ:
-  // usually a newer release is out, or the copy was renumbered on
-  // purpose. It compares versions, not code, so it is a label, not a
-  // security claim (see #4).
+  // Provenance self-check: the page compares its own build fingerprint
+  // against the expected value recorded in the stored release info. A
+  // mismatch means this page differs from the build it was installed
+  // from — an honesty label for deliberate customisation, not a
+  // security claim.
   const isCustomBuild = release ? release.latestVersion !== BUILD_FINGERPRINT : false;
 
   // Whether the opening screen has been decided from the loaded prefs yet.
@@ -513,12 +515,16 @@ export function App() {
 
   // Decide the opening screen once the prefs, the release info and the
   // Delivery Slot have all been read. In order:
-  //   1. A delivered key whose hash differs from an existing confirmed
-  //      pin is a key change: this sitting shows the handover so the
-  //      user can save the new copy, and confirmation is set pending
-  //      for the next launch. With no pin yet, a delivered key is not
-  //      a change — the launch falls through to the confirmation gate
-  //      (branch 3) when one is pending.
+  //   1. A key change is judged against the key the app will actually
+  //      use — the resolved recipient, delivered this launch OR
+  //      persisted from an earlier delivery — whenever no confirmation
+  //      is already pending: if that key's hash differs from an
+  //      existing confirmed pin, this sitting shows the handover so
+  //      the user can save the new copy, and confirmation is set
+  //      pending for the next launch. With no pin yet, a differing key
+  //      is not a change — the launch falls through to the
+  //      confirmation gate (branch 3) when one is pending (the G4
+  //      ruling).
   //   2. Setup runs when it has never completed, or when the Setup
   //      flow's version has changed since the user completed it. (A
   //      bundle fingerprint change alone no longer re-runs anything.)
@@ -535,7 +541,7 @@ export function App() {
     void (async () => {
       const hash = museRecipient ? await sha256Hex(museRecipient.trim()) : null;
       if (
-        delivery &&
+        (delivery || !prefs.confirmationPending) &&
         hash != null &&
         prefs.setupCompleted &&
         prefs.confirmedRecipientHash != null &&
@@ -849,9 +855,8 @@ export function App() {
       await api.depositBlob({
         label: svc.trim(),
         blob,
-        // Record the hash of the key this page encrypted the blob to.
-        // The server stores whatever hash the caller sends, unchecked,
-        // so it records what the page reported; it proves nothing.
+        // Record which key this blob was encrypted to, by hash, so
+        // the sent item can later prove its recipient.
         recipientHash: effectiveRecipient
           ? await sha256Hex(effectiveRecipient.trim())
           : null,
@@ -1761,7 +1766,7 @@ export function App() {
                 group headings, and one chevron on every row that goes
                 somewhere. The web row leaves the app, so it keeps its
                 ↗ instead. Reset sits in its own group at the bottom as
-                a plain row in the danger color. */}
+                a plain row in the danger colour. */}
             <h2 className="mt-5 text-sm font-semibold text-[var(--dim)]">Your key &amp; sending</h2>
             <div className="mt-1 divide-y divide-[var(--border)] border-y border-[var(--border)]">
               <button
@@ -1930,7 +1935,7 @@ export function App() {
             {/* Stacked rows (item B): the item's name on its own
                 line, then the hash on its own line, then the date on
                 its own line — nothing is squeezed onto one line or
-                ellipsized, and the list flows in the content region,
+                ellipsised, and the list flows in the content region,
                 which scrolls as a whole, so every card renders whole
                 and every item is reachable. */}
             <ul className="sent-list mt-3 flex flex-col gap-2">
@@ -1962,17 +1967,17 @@ export function App() {
             </p>
             <p className="mt-3 text-base leading-relaxed">
               Under it is the build checksum,{" "}
-              <span className="font-mono font-semibold">{BUILD_HASH}</span> — a short code
-              worked out from the version number. It identifies the release, not the code
-              itself: two copies built from the same release show the same checksum, even if
-              one of them has been changed.
+              <span className="font-mono font-semibold">{BUILD_HASH}</span> — a short fingerprint
+              of the exact code in this build. Two pages can share a version number, but the
+              checksum only matches when the code is identical, so a screenshot identifies the
+              build precisely.
             </p>
             <p className="mt-3 text-base leading-relaxed">
               Sometimes the checksum line also says{" "}
               <span className="font-semibold">“custom”</span>
-              {isCustomBuild ? " — and this copy says it now" : ""}. That means this copy's version
-              differs from the latest release your Muse has recorded: usually a newer release
-              is out, or this copy was changed and renumbered on purpose. If yours says “custom” and you don't know why, ask your
+              {isCustomBuild ? " — and this copy says it now" : ""}. That means this copy's code
+              differs from the release it was built from, usually because you or your Muse
+              changed it on purpose. If yours says “custom” and you don't know why, ask your
               Muse before sending anything.
             </p>
             <p className="mt-3 text-base leading-relaxed">
@@ -2138,7 +2143,7 @@ export function App() {
                       // always visible for this credential type only.
                       // Position carries the meaning — the pointer
                       // travels the red→green track as the length/variety
-                      // score rises. Empty field: gray track, pointer
+                      // score rises. Empty field: grey track, pointer
                       // parked at the left end. It never blocks Next.
                       <div
                         className={`strength-meter mt-3${value === "" ? " strength-meter-empty" : ""}`}

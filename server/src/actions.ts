@@ -122,7 +122,7 @@ type ReleaseInfoRow = typeof schema.releaseInfo.$inferSelect;
 
 /** The build version this server code ships with. The release-info row is
  * seeded to match it, so a fresh install reports "no release available". */
-const CURRENT_BUILD_VERSION = "proto-wizard-1.7";
+const CURRENT_BUILD_VERSION = "proto-wizard-1.8";
 
 /** The version of the Setup flow this build ships. Setup re-runs at
  * launch only when the user's completed setupVersion differs from it
@@ -587,22 +587,32 @@ export const Actions = {
 
   getDeliveryStatus: defineAction({
     description:
-      "Reports whether a delivery is waiting in the Delivery Slot — its recipient's SHA-256 hash only (never the recipient itself), the optional service label, and when it was written.",
+      "Reports whether a delivery is waiting in the Delivery Slot — its recipient's SHA-256 hash only (never the recipient itself), the optional service label, and when it was written. Also returns the persisted recipient's SHA-256 hash (persistedRecipientHash; null when no key has ever been delivered) — hash only, never the key itself.",
     request: z.object({}),
     response: z.object({
       waiting: z.boolean(),
       recipientHash: z.string().nullable(),
+      persistedRecipientHash: z.string().nullable(),
       serviceLabel: z.string().nullable(),
       writtenAt: z.string().nullable(),
     }),
     async handler(ctx) {
+      const persisted = await loadPersistedRecipient(ctx);
+      const persistedRecipientHash = persisted ? await sha256Hex(persisted) : null;
       const row = await loadDeliverySlot(ctx);
       if (!row?.recipient) {
-        return { waiting: false, recipientHash: null, serviceLabel: null, writtenAt: null };
+        return {
+          waiting: false,
+          recipientHash: null,
+          persistedRecipientHash,
+          serviceLabel: null,
+          writtenAt: null,
+        };
       }
       return {
         waiting: true,
         recipientHash: await sha256Hex(row.recipient),
+        persistedRecipientHash,
         serviceLabel: row.serviceLabel,
         writtenAt: row.writtenAt ? row.writtenAt.toISOString() : null,
       };
@@ -611,7 +621,7 @@ export const Actions = {
 
   consumeDelivery: defineAction({
     description:
-      "The app's launch path: returns the waiting delivery (recipient and optional service label) and clears the slot, so each delivery is consumed exactly once. When no delivery is waiting, returns the persisted recipient from the most recent delivery instead (delivered:false, fromPersisted:true), so the app encrypts to the delivered key on every launch. recipient is null only when no key has ever been delivered.",
+      "The app's launch path: returns the waiting delivery (recipient and optional service label) and clears the slot, so each delivery is consumed exactly once. When no delivery is waiting, returns the persisted recipient from the most recent delivery instead (delivered:false, fromPersisted:true), so the app encrypts to the delivered key on every launch. recipient is null only when no key has ever been delivered. Agents must not call this action. It is the app's own launch path; calling it consumes a delivery the user may never see.",
     request: z.object({}),
     response: z.object({
       delivered: z.boolean(),
