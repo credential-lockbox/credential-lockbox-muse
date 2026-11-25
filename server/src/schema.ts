@@ -44,7 +44,7 @@ export const wizardPrefs = sqliteTable("wizard_prefs", {
 
 // Release info: a single row (id = 1) the agent maintains — the latest
 // released build version, whether that release is an "update" (fixes and
-// small improvements, behaviour unchanged) or an "upgrade" (changes how
+// small improvements, behavior unchanged) or an "upgrade" (changes how
 // some things work), an optional note, and the name of the store behind
 // "Save to Muse directly" (the user's choice, made during setup with
 // Muse from the stores Muse checked and presented; the page displays
