@@ -20,6 +20,7 @@ This source is a web artifact: a TypeScript Space.
 - **The built bundle isn't edited by hand** (`~/workspace/ts-spaces/<slug>/.space-build/` in the Space's workspace). Hand edits publish nothing either.
 - **A change to the live prototype goes through its owner's Muse.** The Muse finds the Space among its existing artifacts (the slug is in `space.json`; an owner may have more than one Credential Lockbox Space) and requests the change by describing the edit. That starts a builder to make it.
 - **This repository's source changes in a pull request** (new with this document), so it stays the record of what the Space is built from.
+- **A pull request merges only after the maintainer's sign-off.** The maintainer applies `QA Approved`, and the `QA Gate` status (`.github/workflows/qa-gate.yml`) turns green only when the maintainer's account applied it last. A push removes `QA Approved`, since it invalidates the approval. A source export that reaches GitHub under the maintainer's account goes onto a branch the Dev bot creates, so that the maintainer's own approval can count under main's last-pusher rule.
 
 ## A Space's data
 
