@@ -54,8 +54,9 @@ const FIELDS = actionFields<typeof Actions>();
 const BUILD_FINGERPRINT = "proto-wizard-1.7";
 
 /** Short build hash shown on the provenance line's second line: the
- * first 8 hex characters of the SHA-256 of the build fingerprint,
- * computed at build time. */
+ * first 8 hex characters of the SHA-256 of BUILD_FINGERPRINT, typed in
+ * by hand whenever the fingerprint is bumped (nothing computes it at
+ * build time). It identifies the release, not the code: see #4. */
 const BUILD_HASH = "a0a1fc6f";
 
 /** Fallback for the release info's setupVersion before it loads (and
@@ -410,11 +411,12 @@ export function App() {
   // info the agent maintains. Setup re-runs at launch only when the
   // user's completed setupVersion differs from this.
   const currentSetupVersion = release?.setupVersion ?? FALLBACK_SETUP_VERSION;
-  // Provenance self-check: the page compares its own build fingerprint
-  // against the expected value recorded in the stored release info. A
-  // mismatch means this page differs from the build it was installed
-  // from — an honesty label for deliberate customization, not a
-  // security claim.
+  // Provenance self-check: the page compares its own version
+  // (BUILD_FINGERPRINT) with the latest release version Muse recorded in
+  // the release info. A mismatch means the two version strings differ:
+  // usually a newer release is out, or the copy was renumbered on
+  // purpose. It compares versions, not code, so it is a label, not a
+  // security claim (see #4).
   const isCustomBuild = release ? release.latestVersion !== BUILD_FINGERPRINT : false;
 
   // Whether the opening screen has been decided from the loaded prefs yet.
@@ -847,8 +849,9 @@ export function App() {
       await api.depositBlob({
         label: svc.trim(),
         blob,
-        // Record which key this blob was encrypted to, by hash, so
-        // the sent item can later prove its recipient.
+        // Record the hash of the key this page encrypted the blob to.
+        // The server stores whatever hash the caller sends, unchecked,
+        // so it records what the page reported; it proves nothing.
         recipientHash: effectiveRecipient
           ? await sha256Hex(effectiveRecipient.trim())
           : null,
@@ -1959,17 +1962,17 @@ export function App() {
             </p>
             <p className="mt-3 text-base leading-relaxed">
               Under it is the build checksum,{" "}
-              <span className="font-mono font-semibold">{BUILD_HASH}</span> — a short fingerprint
-              of the exact code in this build. Two pages can share a version number, but the
-              checksum only matches when the code is identical, so a screenshot identifies the
-              build precisely.
+              <span className="font-mono font-semibold">{BUILD_HASH}</span> — a short code
+              worked out from the version number. It identifies the release, not the code
+              itself: two copies built from the same release show the same checksum, even if
+              one of them has been changed.
             </p>
             <p className="mt-3 text-base leading-relaxed">
               Sometimes the checksum line also says{" "}
               <span className="font-semibold">“custom”</span>
-              {isCustomBuild ? " — and this copy says it now" : ""}. That means this copy's code
-              differs from the release it was built from, usually because you or your Muse
-              changed it on purpose. If yours says “custom” and you don't know why, ask your
+              {isCustomBuild ? " — and this copy says it now" : ""}. That means this copy's version
+              differs from the latest release your Muse has recorded: usually a newer release
+              is out, or this copy was changed and renumbered on purpose. If yours says “custom” and you don't know why, ask your
               Muse before sending anything.
             </p>
             <p className="mt-3 text-base leading-relaxed">
