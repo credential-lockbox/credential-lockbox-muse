@@ -107,6 +107,13 @@ document governs; about everything else, the core governs.
 - Your side of the comparison stays available: `agent-setup.sh
   --fingerprint` prints the recipient from the identity file whenever
   either of you needs to cross-check what the app holds.
+- Be plain about what the check proves. It catches a wrong copy and a
+  mistyped one, and it confirms that a recovered copy matches. It cannot,
+  by itself, stop a session that sets out to swap the key. What decides is
+  the user pasting the copy they saved, from where they saved it (their
+  password manager, not something just copied), and a mismatch being
+  treated as a stop. Say so if the user asks how far the check protects
+  them.
 
 ## Step G5 — Sending: the user's choice (the core's step 6, brought forward)
 
