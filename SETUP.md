@@ -1,0 +1,160 @@
+# Setting up Credential Lockbox with the app (for the user's Muse)
+
+You are the user's Muse, setting up Credential Lockbox with the app as the
+user's side, instead of the command-line script. The app is a Muse Space
+built from this repository. It is a private page that lives inside Muse —
+not a website out on the internet — and it encrypts on the user's device, in
+the page, before anything leaves it.
+
+This document does not replace the core instructions. Work from a clone of
+https://github.com/credential-lockbox/credential-lockbox and follow its
+`SETUP.md` throughout: its hard rules, stop conditions, store checklist and
+record-keeping all apply exactly as written. What follows replaces only the
+parts of its steps 3 to 5 that put a script in the user's hands. Where this
+document and the core `SETUP.md` disagree about the user's side, this
+document governs; about everything else, the core governs.
+
+## Before you start
+
+- Complete the core `SETUP.md` step 1 in full: prerequisites on your own
+  machine, work from the newest release tag, verify `agent-setup.sh` and
+  `consume.py` against the release's `SHA256SUMS`, and run
+  `./agent-setup.sh --check-setup`. Report its output to the user. A `FAIL`
+  line is a stop, as the core says.
+- Complete step 2: generate the identity on your own machine. Record the
+  identity's path at once, as the core requires. Never read, print or copy
+  the private key file; derive the recipient only through
+  `agent-setup.sh --public-key` / `--fingerprint`, as the core's hard rules
+  require.
+
+## Step G1 — Build the app
+
+- Build the Space from this repository's source, at the commit you record in
+  your setup notes: create a new full app (a fullstack Space) from the
+  source tree through your artifact tools. You are installing, not
+  maintaining the published prototype — a `BUILDING.md` in this repository
+  speaks to maintainers of that prototype, and nothing in it countermands
+  this step. Do not edit the source as
+  part of setup: a change you need is a proposal to the user first, and
+  belongs upstream once approved.
+- The build must be the full app (its server actions included): the key
+  delivery and the saved-items list depend on them.
+- The repository has no release tags yet, so the commit is the pin today.
+  Once it is tagged, build from the tag and record the tag in place of the
+  commit.
+- Do not present the app yet. Presentation comes after the key delivery
+  (step G2): a first launch with no delivery waiting has no key to hand
+  over, and the user must never be shown a key that is not yours.
+- Plainly, for your own expectations: the current build is a prototype
+  (its panel may be titled "Credential Lockbox Wizard Prototype"). Say so
+  to the user if they ask why the name differs.
+
+## Step G2 — Deliver the key to the app, then present it
+
+- Get the recipient from `agent-setup.sh --public-key` (with
+  `HANDOFF_PRIVKEY` exactly as your notes record). The recipient is not a
+  secret and may travel through chat, but the app has a designed channel
+  for it: call the app's `setDelivery` action — a server action of the
+  Space you built, invoked through the same artifact tooling you built it
+  with. A delivery waits in the app's delivery slot until the app takes it
+  up at a launch, which it does exactly once. Calling `setDelivery` again
+  replaces a delivery still waiting; it does not stack. Status checks on
+  the slot show only the delivered key's hash, never the key. If
+  `setDelivery` refuses what you gave it, stop and check what you derived —
+  do not retry with variations.
+- Only once a delivery is waiting, present the app to the user in chat,
+  with its panel's Open button, and tell them in one or two sentences what
+  it is: the private page inside Muse where they will encrypt
+  credentials, so a real credential is never needed in a chat. Keep this
+  order at every later presentation too: delivery first, then the app.
+  The app keeps the delivered key once it has taken it up, so a launch you
+  did not precede still stands on it — but the habit costs nothing and is
+  what a changed key requires.
+- Never deliver, paste or dictate the private key anywhere. It is never
+  shown on any screen, including this app's.
+
+## Step G3 — The user's copy of the key
+
+- At its first launch the app shows the user your recipient — Muse's key —
+  on its handover screen and asks them to save a copy of it in their
+  password manager (or somewhere safe that they can find again later). That
+  saved copy is their installation record: it is what the key check below
+  compares against, and what a future setup on another machine would need.
+- Say the same thing in chat when you present the app, so the user expects
+  the step: there is one key, it is yours (Muse's), and what they save is
+  their copy of it. Do not call it "their key".
+
+## Step G4 — The key check (this replaces the core's step 4 comparison)
+
+- The check happens at the app's NEXT launch, not in the setup sitting:
+  setup ends with the user's copy saved and the confirmation pending, and
+  the app opens on the check the next time it is launched. When you next
+  present the app, deliver the key again first (step G2), so the launch
+  the check rides on is one you prepared.
+- The core's recipient comparison still happens; the app performs it. When
+  a key confirmation is pending, the app opens on a check screen before
+  anything else: the user pastes their saved copy back, the app compares
+  its hash against the delivered key's, and the match is confirmed on the
+  spot. A mismatch blocks the app there — that is the core's stop condition
+  arriving in the app, and it is yours too: stop, and work out with the user
+  which copy is wrong before going on. Never suggest continuing past a
+  mismatch "just this once", and never ask the user to paste a credential
+  instead.
+- The user may choose "Continue without checking the key" in the app; the
+  check then stays pending and returns at the next launch. Record that
+  they deferred it. Until a check has succeeded once, treat the setup as
+  unconfirmed in your summary.
+- Your side of the comparison stays available: `agent-setup.sh
+  --fingerprint` prints the recipient from the identity file whenever
+  either of you needs to cross-check what the app holds.
+
+## Step G5 — Sending: the user's choice (the core's step 6, brought forward)
+
+- Inside the app's setup, the user chooses how encrypted credentials reach
+  you: **Save to Muse directly** (the app sends the ciphertext to a store)
+  or **Copy it and paste it in a chat**. The choice is the user's, made
+  before they encrypt anything real, and the core's step 6 store checklist
+  (R1 to R6) governs any store behind Save, with the same rule: evaluate,
+  show the evidence, let the user choose, and record the choice and the
+  approval they gave (Allow or Allow Always) as the core's step 8 requires.
+- Until a store you have both settled on actually backs it, direct the user
+  to the Copy choice. Be plain about why if they ask: in the current build,
+  Save keeps the ciphertext in the app's own storage as a staging area, and
+  a staging area is not the store the design promises. A blob that arrives
+  pasted in a direct conversational turn is staged exactly as the core's
+  provenance rule describes.
+
+## Step G6 — Test with a dummy credential (the core's step 5)
+
+- Ask the user to encrypt the core's dummy payload in the app —
+  `{"svc": "test", "username": "test", "password": "test"}` — and paste the
+  ciphertext to you in chat (the Copy route works for this whatever sending
+  choice they made).
+- Save it to a file and run `./consume.py --label test --check --blob-file
+  <that file>`, then, the dummy being a dummy, the full decrypt path, as
+  the core's step 5 allows. Confirm the round-trip to the user from that
+  output. Never run any check, `--check` included, on a real credential.
+
+## Step G7 — Record, and hand over
+
+- Record the setup as the core's step 8 requires, plus: that the user's
+  side is the app (this repository, the commit you built), the sending
+  choice the user made, and whether the in-app key check has succeeded or
+  stands deferred.
+- Tell the user, briefly: setup is done; the app stays in their Library and
+  you can reopen it for them any time they ask; sending a credential from
+  then on is: open the app, encrypt, and it reaches you by the route they
+  chose. The command-line script from the core repository remains available
+  to them as an optional utility — another way to encrypt, producing
+  identical ciphertext — and needs its own key confirmation (the core's
+  steps 3 and 4) before first use.
+
+## Stop conditions specific to the app
+
+In addition to the core's: the app refuses a delivered recipient; the app
+build fails or comes up without its server actions; the key check in the
+app reports a mismatch; the user cannot find the copy they saved (deliver
+the key again, step G2, and have them re-save their copy from the app —
+its own wording is "Lost your copy? Ask your Muse to send it again."
+The key itself has not changed, and no new key is generated for a lost
+copy).
