@@ -1,38 +1,47 @@
-// Credential Lockbox — Wizard Prototype (proto-wizard-1.8).
+// Credential Lockbox — Wizard Prototype (proto-wizard-1.9).
 //
 // Two wizards:
 //   SETUP — Introduction → Your copy of the key → Sending to Muse
 //     (three steps). Runs on first launch, when the Setup flow itself
 //     has changed since the user last completed it (a setupVersion
-//     change), or one screen at a time from the Setup & reset hub.
-//     The key check is NOT a Setup step: completing a handover sets a
-//     confirmation-pending flag, and the NEXT launch opens on the key
-//     check as a gate before Encrypt Step 1; a match there clears the
-//     flag and pins the key. About the key and Other ways to encrypt
-//     are reference screens, not steps: they open as secondary screens
-//     (from the key handover and the hub) and close back to the
-//     invoking screen.
+//     change), or one screen at a time from the gear hub.
+//     The key check is NOT a Setup step: completing Setup (or a key
+//     change) sets a confirmation-pending flag server-side, and the
+//     key check then gates Encrypt Step 1 — at the NEXT launch after
+//     a first setup, but in the SAME sitting after a key change.
+//     A match at the check is pinned server-side by the checkKey
+//     action; the page never writes the pin itself. About the key
+//     and Other ways to encrypt are reference screens, not steps:
+//     they open as secondary screens (from the key handover and the
+//     hub) and close back to the invoking screen.
 //   ENCRYPT — Step 1 Service & type → Step 2 Details → Step 3 Review &
 //     encrypt → Step 4 Delivery (Save there jumps to the Receipt
 //     screen). When setup is complete and current, the app lands here
-//     directly.
+//     directly. Encrypting refuses when a confirmed pin exists and
+//     the key this page would encrypt to hashes differently (A1).
 //
 // Muse's key reaches the page through the Delivery Slot: a one-shot
 // server-side record Muse writes before presenting the page. At
 // launch the app consumes it. A key change is judged against the key
 // the app will actually use — the recipient resolved at this launch,
-// whether delivered this launch or persisted from an earlier one: when
-// no confirmation is already pending and that key's hash differs from
-// an existing confirmed pin, it is a key change (this sitting shows the
-// handover and sets confirmation pending). When a confirmation is
-// already pending, the key check opens as a gate instead. With no pin
-// yet, a differing key is not a change, and a pending confirmation
-// opens the key check as a gate (the G4 ruling). A delivered service
-// label pre-fills Encrypt Step 1. The delivered recipient is also
-// persisted server-side, so on later launches the consume path returns
-// the persisted key: the app encrypts to the delivered key every time.
-// There is NO built-in fallback recipient — when no key has ever been
-// delivered, the app shows a waiting state and cannot encrypt.
+// whether delivered this launch or persisted from an earlier one —
+// and the detection is bound to a key (A2): the key-change branch
+// fires only when a confirmed pin exists AND the resolved key's hash
+// differs from the pin AND differs from the pending recipient hash
+// (the key a confirmation is already pending for). When it fires, the
+// app records the pending hash server-side (markKeyChangePending) and
+// shows the handover; after the handover the key check follows in the
+// same sitting. When a confirmation is already pending FOR the
+// resolved key (its hash equals the pending recipient hash), the
+// launch goes to the key-check gate instead of re-showing the
+// handover. With no pin yet, a differing key is not a change, and a
+// pending confirmation opens the key check as a gate (the G4 ruling).
+// A delivered service label pre-fills Encrypt Step 1. The delivered
+// recipient is also persisted server-side, so on later launches the
+// consume path returns the persisted key: the app encrypts to the
+// delivered key every time. There is NO built-in fallback recipient —
+// when no key has ever been delivered, the app shows a waiting state
+// and cannot encrypt.
 //
 // Encryption happens entirely in this page with the bundled
 // `age-encryption` 0.3.1 (typage) library: one X25519 recipient, binary
@@ -55,13 +64,13 @@ const FIELDS = actionFields<typeof Actions>();
  * whenever the shipped page changes. A fingerprint change by itself no
  * longer re-runs Setup or the key check — that trigger is the Setup
  * flow's own version (setupVersion, held in the release info). */
-const BUILD_FINGERPRINT = "proto-wizard-1.8";
+const BUILD_FINGERPRINT = "proto-wizard-1.9";
 
 /** Short build hash shown on the provenance line's second line: the
  * first 8 hex characters of the SHA-256 of BUILD_FINGERPRINT, typed in
  * by hand whenever the fingerprint is bumped (nothing computes it at
  * build time). It identifies the release, not the code: see #4. */
-const BUILD_HASH = "1b3d4ed9";
+const BUILD_HASH = "ae84473a";
 
 /** Fallback for the release info's setupVersion before it loads (and
  * for an install whose release info predates the field). */
@@ -253,6 +262,101 @@ function formatTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
+/** Storage-persistence marker (proto-wizard-1.9, for a later design
+ * question): at launch the page looks in localStorage and
+ * sessionStorage for a marker it writes itself — a random value plus
+ * a first-seen timestamp. Finding a marker means a PREVIOUS launch
+ * wrote it and the storage persisted across launches; finding none,
+ * the page writes one now, and whether this is the first launch or a
+ * later one whose storage did not persist is judged across BOTH
+ * stores (a previous marker in either store proves an earlier launch
+ * happened). The result is reported on the About this build screen;
+ * nothing else reads the marker. Computed once per page load and
+ * cached, so re-renders never re-judge it. */
+type StoragePersistence = "persisted" | "not-persisted" | "first-launch" | "unavailable";
+const STORAGE_MARKER_KEY = "credential-lockbox.storage-marker.v1";
+
+function readStorageMarker(storage: Storage): string | null {
+  try {
+    return storage.getItem(STORAGE_MARKER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorageMarker(storage: Storage) {
+  try {
+    storage.setItem(
+      STORAGE_MARKER_KEY,
+      JSON.stringify({
+        value: `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`,
+        firstSeenAt: new Date().toISOString(),
+      }),
+    );
+  } catch {
+    // Storage is unwritable here; the report's "unavailable" covers it.
+  }
+}
+
+let storagePersistenceCache: { local: StoragePersistence; session: StoragePersistence } | null =
+  null;
+
+function probeStoragePersistence(): { local: StoragePersistence; session: StoragePersistence } {
+  if (storagePersistenceCache) return storagePersistenceCache;
+  const judge = (
+    storage: Storage | null,
+    existing: string | null,
+    otherHadMarker: boolean,
+  ): StoragePersistence => {
+    if (storage == null) return "unavailable";
+    if (existing != null) return "persisted";
+    writeStorageMarker(storage);
+    // This store held no marker. If the OTHER store held one, an
+    // earlier launch definitely happened, so this store simply did
+    // not persist; if neither did, this is the first launch.
+    return otherHadMarker ? "not-persisted" : "first-launch";
+  };
+  let localExisting: string | null = null;
+  let sessionExisting: string | null = null;
+  try {
+    localExisting = readStorageMarker(window.localStorage);
+  } catch {
+    localExisting = null;
+  }
+  try {
+    sessionExisting = readStorageMarker(window.sessionStorage);
+  } catch {
+    sessionExisting = null;
+  }
+  const result = {
+    local: judge(safeStorage("local"), localExisting, sessionExisting != null),
+    session: judge(safeStorage("session"), sessionExisting, localExisting != null),
+  };
+  storagePersistenceCache = result;
+  return result;
+}
+
+function safeStorage(kind: "local" | "session"): Storage | null {
+  try {
+    return kind === "local" ? window.localStorage : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function storagePersistenceText(state: StoragePersistence): string {
+  switch (state) {
+    case "persisted":
+      return "a marker from a previous launch was found — this storage persisted across launches.";
+    case "not-persisted":
+      return "no marker from a previous launch was found — only this launch's marker is here, so this storage did not persist.";
+    case "first-launch":
+      return "this is the first launch — a marker has just been written, and the next launch will show whether it persisted.";
+    case "unavailable":
+      return "this storage could not be read at all.";
+  }
+}
+
 const inputClass =
   "w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-base text-[var(--text)] outline-none focus:border-[var(--accent)]";
 const labelClass = "block text-base font-medium text-[var(--text)] mb-2";
@@ -301,6 +405,7 @@ export function App() {
   const [delivery, setDelivery] = useState<{
     recipient: string;
     serviceLabel: string | null;
+    reason: string | null;
   } | null>(null);
   // Muse's key for this launch, as resolved by the consume-at-launch
   // path: a delivery consumed at this launch, else the persisted
@@ -308,10 +413,30 @@ export function App() {
   // built-in fallback key. While null, the app shows a waiting state
   // and cannot encrypt or display a key.
   const [launchRecipient, setLaunchRecipient] = useState<string | null>(null);
+  // The reason stored with the resolved key ("rotation" for a planned
+  // rotation; wording data only — no gate or check reads it).
+  const [launchReason, setLaunchReason] = useState<string | null>(null);
+  // True when the resolved key came from the persisted store rather
+  // than a delivery consumed at this launch. Drives the key check's
+  // and key details' wording: a this-page delivery may be claimed
+  // only when this launch actually consumed one.
+  const [deliveryFromPersisted, setDeliveryFromPersisted] = useState(false);
+  // True when the delivery read itself failed (distinct from "no key
+  // delivered yet"): the waiting state says the read failed.
+  const [deliveryReadFailed, setDeliveryReadFailed] = useState(false);
   const [deliveryChecked, setDeliveryChecked] = useState(false);
   const consumeStartedRef = useRef(false);
+  // Bumped by the waiting state's "Check again" when a key has
+  // arrived, to re-run the launch decision in place.
+  const [launchRound, setLaunchRound] = useState(0);
+  const [checkingAgain, setCheckingAgain] = useState(false);
   const museRecipient = launchRecipient;
   const hasRecipient = museRecipient != null;
+  // True only when THIS launch consumed a delivery from the slot.
+  const deliveredThisLaunch = delivery != null;
+  // The storage-persistence marker report, probed once at launch
+  // (see probeStoragePersistence); shown on About this build.
+  const [storagePersistence] = useState(probeStoragePersistence);
 
   const [screen, setScreen] = useState<ScreenState>({ kind: "encrypt", step: 1 });
   // Secondary screens (the Setup & reset hub and everything opened from
@@ -336,11 +461,25 @@ export function App() {
   // the setupVersion changed: the handover asks for its tick again,
   // exactly as on a first run.
   const [setupVersionRerun, setSetupVersionRerun] = useState(false);
-  // True when the key handover is on screen because the Delivery Slot
-  // brought a changed key with this launch: saving the new copy here
-  // proceeds to Encrypt Step 1, and the confirmation happens at the
-  // NEXT launch (the pending flag is already set).
+  // True when the key handover is on screen because the launch
+  // detected a key change: saving the new copy here proceeds straight
+  // to the key check in the SAME sitting (Chris's ruling) — the check
+  // no longer waits for the next launch.
   const [deliveryHandover, setDeliveryHandover] = useState(false);
+  // True when the key check on screen is the post-key-change check —
+  // reached in the same sitting after a key-change handover, from the
+  // mismatch route's "Get your new copy" handover, as the launch gate
+  // when the pending confirmation is for a changed key, or from an
+  // encrypt refusal. On this screen the bypass must NOT unblock
+  // encryption (it is hidden), and the text asks for the copy from
+  // the user's password manager — where they saved it — not a copy
+  // they just made. The first-setup next-launch gate is NOT this
+  // screen: there the bypass remains, and leaves the confirmation
+  // pending.
+  const [postChangeCheck, setPostChangeCheck] = useState(false);
+  // A plain-language notice carried onto the key check screen when
+  // the encrypt handler refuses (A1): the key has not been confirmed.
+  const [encryptRefusalNotice, setEncryptRefusalNotice] = useState<string | null>(null);
   // True while the key check is shown as the launch gate — drives the
   // gate's explanatory banner.
   const [gateNotice, setGateNotice] = useState(false);
@@ -370,16 +509,33 @@ export function App() {
   const prefs = prefsQuery.data;
   const completions = prefs?.completions ?? 0;
 
+  // The only prefs the page may write directly (L1): the welcome
+  // skip toggle and the delivery preference. The key pin, the
+  // pending flags, and the setup state move only through the
+  // dedicated actions below.
   const setPrefsMutation = useMutation({
     mutationFn: async (patch: {
-      confirmedRecipientHash?: string | null;
-      confirmedBuildFingerprint?: string | null;
-      lastKeyCheckAt?: string | null;
-      setupCompleted?: boolean;
+      skipWelcome?: boolean;
       deliveryPref?: "save" | "copy";
-      confirmationPending?: boolean;
-      completedSetupVersion?: string | null;
     }) => await api.setWizardPrefs(patch),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["wizard-prefs"] });
+    },
+  });
+
+  // Records a key change as awaiting confirmation, server-side: the
+  // server computes the pending hash from the persisted recipient.
+  const markKeyChangePendingMutation = useMutation({
+    mutationFn: async () => await api.markKeyChangePending({}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["wizard-prefs"] });
+    },
+  });
+
+  // The Setup flow's finish path: records the completion at the
+  // current setupVersion and sets the confirmation pending.
+  const completeSetupMutation = useMutation({
+    mutationFn: async () => await api.completeSetup({}),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["wizard-prefs"] });
     },
@@ -440,10 +596,11 @@ export function App() {
   }
 
   // The key check's two holdings of the same public key. Muse's key is
-  // the value delivered with this page. "Your copy" is what the user
-  // pastes from their own installation records; it starts EMPTY whenever
-  // the key check is shown so the compare is between two independent
-  // holdings.
+  // the value this app holds — delivered with this launch, or stored
+  // from an earlier delivery. "Your copy" is what the user pastes from
+  // their own installation records; it starts EMPTY whenever the key
+  // check is shown so the compare is between two independent holdings.
+  // The compare itself happens server-side (checkKey, below).
   const [recipient, setRecipient] = useState("");
   const [pasteTrimmed, setPasteTrimmed] = useState(false);
   // The empty-field bypass: ticking it lets the user proceed without the
@@ -453,12 +610,61 @@ export function App() {
   const recipientRaw = recipient.replace(/\s/g, "");
   const recipientCheck = validateRecipient(recipientRaw);
   const recipientValid = recipientCheck.ok;
-  const keysMatch = recipientValid && museRecipient != null && recipientRaw === museRecipient;
-  // Any non-empty input that does not match — partial, garbled, or a
-  // complete but different key — hard-blocks, with no override.
-  const keysMismatch = recipientRaw !== "" && !keysMatch;
+  // The key check is decided SERVER-side (L1): the page sends the
+  // pasted copy to the checkKey action, which compares it against the
+  // persisted recipient held server-side and pins the confirmation on
+  // a match. The page never compares the paste against a locally held
+  // key string for the check, and never writes the pin itself.
+  // checkKeyState records the server's verdict for the exact value it
+  // was asked about; editing the field makes the verdict stale, which
+  // the value comparisons below handle.
+  const [checkKeyState, setCheckKeyState] = useState<{
+    status: "idle" | "checking" | "match" | "mismatch";
+    value: string;
+  }>({ status: "idle", value: "" });
+  const checkKeyInFlightRef = useRef<string | null>(null);
+  const keysMatch = checkKeyState.status === "match" && checkKeyState.value === recipientRaw;
+  // A complete, well-formed key the server says is not the stored key.
+  const keysMismatch =
+    checkKeyState.status === "mismatch" && checkKeyState.value === recipientRaw;
+  // A complete key with no verdict yet for its exact value.
+  const keyCheckPending = recipientValid && !keysMatch && !keysMismatch;
+  // Any non-empty input that is not a server-confirmed match —
+  // partial, garbled, still being checked, or a complete but
+  // different key — hard-blocks, with no override. On the
+  // post-key-change check the bypass is not offered at all, so only
+  // a match proceeds there.
   const keyCheckCanProceed =
-    hasRecipient && (keysMatch || (recipientRaw === "" && bypassKeyCheck));
+    hasRecipient &&
+    (keysMatch || (!postChangeCheck && recipientRaw === "" && bypassKeyCheck));
+
+  // Ask the server to check each distinct complete pasted key. A
+  // match pins the confirmation server-side, so the prefs refresh to
+  // pick up the new pin and the cleared pending flags.
+  useEffect(() => {
+    if (!recipientValid || !hasRecipient) return;
+    if (checkKeyState.value === recipientRaw && checkKeyState.status !== "idle") return;
+    if (checkKeyInFlightRef.current === recipientRaw) return;
+    checkKeyInFlightRef.current = recipientRaw;
+    const asked = recipientRaw;
+    setCheckKeyState({ status: "checking", value: asked });
+    void (async () => {
+      try {
+        const result = await api.checkKey({ candidate: asked });
+        setCheckKeyState({ status: result.match ? "match" : "mismatch", value: asked });
+        if (result.match) {
+          void queryClient.invalidateQueries({ queryKey: ["wizard-prefs"] });
+        }
+      } catch {
+        // The check could not be completed: leave the verdict unset
+        // so editing the field triggers a fresh check.
+        setCheckKeyState({ status: "idle", value: "" });
+      } finally {
+        if (checkKeyInFlightRef.current === asked) checkKeyInFlightRef.current = null;
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipientRaw, recipientValid, hasRecipient]);
   // Whether the delivered key differs from the confirmed pin — the other
   // trigger for the key handover's "key updated" framing.
   const [deliveredHash, setDeliveredHash] = useState<string | null>(null);
@@ -474,6 +680,12 @@ export function App() {
     deliveredHash != null &&
     prefs.confirmedRecipientHash !== deliveredHash;
   const keyUpdated = setupReason === "keyUpdated" || keyChangedFromPin;
+  // A key-change handover for a key whose stored delivery reason is
+  // "rotation" (issue #10): the handover uses the calmer
+  // planned-rotation wording. The reason is the caller's claim and is
+  // read for WORDING ONLY — the key check still follows, a mismatch
+  // is still a stop, and no gate changes.
+  const rotationHandover = keyUpdated && launchReason === "rotation";
   // The handover gate: the "I've saved my copy" tick is asked only when
   // there is a copy to save — a first run (setup not yet completed) or a
   // changed key. This one predicate drives BOTH the checkbox's render
@@ -485,53 +697,105 @@ export function App() {
   // What encryption actually uses: Muse's key — the delivery consumed
   // at this launch, or the persisted recipient from an earlier
   // delivery. In every reachable flow the key check either matched the
-  // user's copy against it or was deliberately bypassed, so this is
-  // the key credentials encrypt to. Null when no key has ever been
-  // delivered: then nothing encrypts.
+  // user's copy against the stored key (server-side) or was
+  // deliberately bypassed, so this is the key credentials encrypt to;
+  // the encrypt handler additionally refuses when a confirmed pin
+  // exists that this key does not hash to (A1). Null when no key has
+  // ever been delivered: then nothing encrypts.
   const effectiveRecipient = museRecipient;
 
+  /** One launch resolution: consume the Delivery Slot (the consume
+   * path also returns the persisted recipient when no delivery is
+   * waiting) and record what this launch holds. Runs once at mount,
+   * and again from the waiting state's "Check again". Returns the
+   * consume result, or null when the read itself failed. A malformed
+   * recipient is ignored — the launch then has no key. */
+  async function runLaunchResolution() {
+    try {
+      const result = await api.consumeDelivery({});
+      setDeliveryReadFailed(false);
+      if (result.recipient && validateRecipient(result.recipient).ok) {
+        setLaunchRecipient(result.recipient);
+        setLaunchReason(result.reason ?? null);
+        if (result.delivered) {
+          setDelivery({
+            recipient: result.recipient,
+            serviceLabel: result.serviceLabel,
+            reason: result.reason ?? null,
+          });
+          setDeliveryFromPersisted(false);
+        } else {
+          setDelivery(null);
+          setDeliveryFromPersisted(result.fromPersisted);
+        }
+      } else {
+        setLaunchRecipient(null);
+        setLaunchReason(null);
+        setDelivery(null);
+        setDeliveryFromPersisted(false);
+      }
+      return result;
+    } catch {
+      // The delivery read itself failed — distinct from "no key
+      // delivered yet", and the waiting state says so.
+      setDeliveryReadFailed(true);
+      return null;
+    } finally {
+      setDeliveryChecked(true);
+    }
+  }
+
   // Consume the Delivery Slot exactly once, at launch: whatever Muse
-  // left there is picked up and the slot is empty again. The consume
-  // path also returns the persisted recipient when no delivery is
-  // waiting, so the launch resolves the delivered key either way. A
-  // malformed recipient is ignored — the launch then has no key.
+  // left there is picked up and the slot is empty again.
   useEffect(() => {
     if (consumeStartedRef.current) return;
     consumeStartedRef.current = true;
-    void (async () => {
-      try {
-        const result = await api.consumeDelivery({});
-        if (result.recipient && validateRecipient(result.recipient).ok) {
-          setLaunchRecipient(result.recipient);
-          if (result.delivered) {
-            setDelivery({ recipient: result.recipient, serviceLabel: result.serviceLabel });
-          }
-        }
-      } catch {
-        // No delivery could be read: the launch proceeds without one.
-      } finally {
-        setDeliveryChecked(true);
-      }
-    })();
+    void runLaunchResolution();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** The waiting state's "Check again": re-run the launch resolution
+   * in place. If a key has since arrived, re-run the launch decision
+   * too, so the app proceeds from the waiting state into the flow the
+   * decision picks. If no key has arrived, the waiting state stays
+   * (its text now reflects whether the read itself failed). */
+  async function handleCheckAgain() {
+    if (checkingAgain) return;
+    setCheckingAgain(true);
+    try {
+      const result = await runLaunchResolution();
+      if (result?.recipient && validateRecipient(result.recipient).ok) {
+        startDecidedRef.current = false;
+        setLaunchRound((n) => n + 1);
+      }
+    } finally {
+      setCheckingAgain(false);
+    }
+  }
 
   // Decide the opening screen once the prefs, the release info and the
   // Delivery Slot have all been read. In order:
-  //   1. A key change is judged against the key the app will actually
-  //      use — the resolved recipient, delivered this launch OR
-  //      persisted from an earlier delivery — whenever no confirmation
-  //      is already pending: if that key's hash differs from an
-  //      existing confirmed pin, this sitting shows the handover so
-  //      the user can save the new copy, and confirmation is set
-  //      pending for the next launch. With no pin yet, a differing key
-  //      is not a change — the launch falls through to the
-  //      confirmation gate (branch 3) when one is pending (the G4
-  //      ruling).
+  //   1. Key change, bound to a key (A2): the branch fires ONLY when a
+  //      confirmed pin exists AND the resolved recipient's hash
+  //      differs from the pin AND differs from the pending recipient
+  //      hash (the key a confirmation is already pending for). The
+  //      resolved recipient is the key the app will actually use —
+  //      delivered this launch OR persisted from an earlier delivery.
+  //      When the branch fires, the app records the pending hash
+  //      server-side (markKeyChangePending) and shows the handover so
+  //      the user can save the new copy; the key check then follows
+  //      in the SAME sitting. With no pin yet, a differing key is not
+  //      a change — the launch falls through to the confirmation gate
+  //      (branch 3) when one is pending (the G4 ruling).
   //   2. Setup runs when it has never completed, or when the Setup
   //      flow's version has changed since the user completed it. (A
   //      bundle fingerprint change alone no longer re-runs anything.)
   //   3. A pending confirmation opens the key check as a gate before
-  //      Encrypt Step 1.
+  //      Encrypt Step 1. When the pending confirmation is FOR the
+  //      resolved key (its hash equals the pending recipient hash)
+  //      and that key is not the pinned one, the gate is the
+  //      post-key-change check: no bypass, and the text asks for the
+  //      copy from the user's password manager.
   //   4. Otherwise the app lands on Encrypt Step 1.
   // A delivered service label pre-fills Encrypt Step 1 in every case.
   useEffect(() => {
@@ -543,13 +807,13 @@ export function App() {
     void (async () => {
       const hash = museRecipient ? await sha256Hex(museRecipient.trim()) : null;
       if (
-        (delivery || !prefs.confirmationPending) &&
         hash != null &&
         prefs.setupCompleted &&
         prefs.confirmedRecipientHash != null &&
-        prefs.confirmedRecipientHash !== hash
+        prefs.confirmedRecipientHash !== hash &&
+        prefs.pendingRecipientHash !== hash
       ) {
-        setPrefsMutation.mutate({ confirmationPending: true });
+        markKeyChangePendingMutation.mutate();
         setSetupReason("keyUpdated");
         setCopySaved(false);
         setDeliveryHandover(true);
@@ -559,19 +823,29 @@ export function App() {
       if (!prefs.setupCompleted || prefs.completedSetupVersion !== currentSetupVersion) {
         if (prefs.setupCompleted) setSetupVersionRerun(true);
         setSetupEntry("firstrun");
+        setGateNotice(false);
+        setPostChangeCheck(false);
         setScreen({ kind: "setup", mode: "flow", step: "intro" });
         return;
       }
       if (prefs.confirmationPending) {
         setSetupEntry("gate");
         setGateNotice(true);
+        setPostChangeCheck(
+          hash != null &&
+            prefs.pendingRecipientHash != null &&
+            prefs.pendingRecipientHash === hash &&
+            prefs.confirmedRecipientHash !== hash,
+        );
         setScreen({ kind: "setup", mode: "flow", step: "keycheck" });
         return;
       }
+      setGateNotice(false);
+      setPostChangeCheck(false);
       setScreen({ kind: "encrypt", step: 1 });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefs, release, deliveryChecked]);
+  }, [prefs, release, deliveryChecked, launchRound]);
 
   // Every screen change starts at the top of the content region — a new
   // screen never inherits the previous screen's scroll position.
@@ -588,28 +862,13 @@ export function App() {
     }
   }, [screen]);
 
-  /** Pin the key confirmation (hash + fingerprint + time) server-side
-   * and clear any pending confirmation. Called only on a genuine
-   * match — never on the bypass. */
-  function pinKeyConfirmation() {
-    if (effectiveRecipient == null) return;
-    setGateNotice(false);
-    void (async () => {
-      const hash = await sha256Hex(effectiveRecipient.trim());
-      setPrefsMutation.mutate({
-        confirmedRecipientHash: hash,
-        confirmedBuildFingerprint: BUILD_FINGERPRINT,
-        lastKeyCheckAt: new Date().toISOString(),
-        confirmationPending: false,
-      });
-    })();
-  }
-
-  /** Show the key check with a fresh field and no bypass. */
+  /** Show the key check with a fresh field, no bypass, and no stale
+   * server verdict. */
   function showKeyCheck(mode: "flow" | "single") {
     setRecipient("");
     setPasteTrimmed(false);
     setBypassKeyCheck(false);
+    setCheckKeyState({ status: "idle", value: "" });
     setScreen({ kind: "setup", mode, step: "keycheck" });
   }
 
@@ -642,13 +901,10 @@ export function App() {
   /** Close on a secondary screen: dismiss the whole secondary layer and
    * return to the screen the user was on when they opened it. Falls back
    * to the applicable start (Encrypt Step 1 when setup is current, the
-   * Setup flow otherwise) when no origin was recorded. If the key check
-   * was opened on its own and the keys match, closing it pins the
-   * confirmation — a match is a completed check. */
+   * Setup flow otherwise) when no origin was recorded. (A match at a
+   * key check needs no pinning here: checkKey pinned it server-side
+   * when the match happened.) */
   function closeSecondaryLayer() {
-    if (screen.kind === "setup" && screen.mode === "single" && screen.step === "keycheck" && keysMatch) {
-      pinKeyConfirmation();
-    }
     // A sub-page opened from the hub (or from a flow screen) Closes
     // back to that invoker (item D) — the layer itself stays open.
     if (subReturn) {
@@ -673,8 +929,11 @@ export function App() {
   }
 
   /** Open the key handover in "key updated" mode (from the mismatch
-   * route): Continue there lands back on the key check. */
+   * route): Continue there lands back on the key check — which is the
+   * post-key-change check (no bypass), since the user is there
+   * because a key changed. */
   function openKeyUpdatedSetup() {
+    setPostChangeCheck(true);
     if (screen.kind === "setup" && screen.mode === "single") {
       setSetupReason("keyUpdated");
       setCopySaved(false);
@@ -722,32 +981,30 @@ export function App() {
     }
   }
 
-  /** Finish the Setup flow (the Sending screen's final button): record the
-   * completion against the current setupVersion, set confirmation
-   * pending — the handover in this flow delivered a key for saving, so
-   * the NEXT launch asks for the confirmation — and land on Encrypt
-   * Step 1. This same sitting proceeds without a gate. */
+  /** Finish the Setup flow (the Sending screen's final button): record
+   * the completion server-side (completeSetup records it against the
+   * current setupVersion and sets confirmation pending — the handover
+   * in this flow delivered a key for saving, so the NEXT launch asks
+   * for the confirmation) and land on Encrypt Step 1. This same
+   * sitting proceeds without a gate. */
   function finishSetup() {
     setSetupReason("normal");
     setSetupVersionRerun(false);
-    setPrefsMutation.mutate({
-      setupCompleted: true,
-      completedSetupVersion: currentSetupVersion,
-      confirmationPending: true,
-    });
+    completeSetupMutation.mutate();
     setScreen({ kind: "encrypt", step: 1 });
   }
 
-  /** Key check Next in flow mode. The key check reaches flow mode only
-   * as the launch gate (or as the in-session re-check after a
-   * key-updated handover): a match pins the confirmation and clears
-   * the pending flag; the bypass proceeds without pinning anything, so
-   * the gate returns next launch. Either way the user lands on Encrypt
-   * Step 1. */
+  /** Key check Next in flow mode. The key check reaches flow mode as
+   * the launch gate or as the post-key-change check: a match has
+   * already pinned the confirmation server-side (checkKey did it when
+   * the verdict came back), so Next just proceeds; the bypass
+   * proceeds without pinning anything, so the gate returns next
+   * launch. Either way the user lands on Encrypt Step 1. */
   function keyCheckNext() {
-    if (keysMatch) pinKeyConfirmation();
     if (screen.kind === "setup" && screen.mode === "flow") {
       setGateNotice(false);
+      setPostChangeCheck(false);
+      setEncryptRefusalNotice(null);
       setSetupReason("normal");
       setScreen({ kind: "encrypt", step: 1 });
     }
@@ -800,9 +1057,19 @@ export function App() {
         setGateNotice(false);
         setSetupVersionRerun(false);
         setDeliveryHandover(false);
+        setPostChangeCheck(false);
+        setEncryptRefusalNotice(null);
         setRecipient("");
         setPasteTrimmed(false);
         setBypassKeyCheck(false);
+        setCheckKeyState({ status: "idle", value: "" });
+        // Reset forgot the stored key server-side, so this page stops
+        // holding it too: until Muse delivers a key again, the app
+        // is in the waiting state, exactly as on a first run.
+        setLaunchRecipient(null);
+        setLaunchReason(null);
+        setDelivery(null);
+        setDeliveryFromPersisted(false);
         setOrigin(null);
         setSubReturn(null);
         setSetupEntry("firstrun");
@@ -951,6 +1218,25 @@ export function App() {
       // is only a backstop.
       setEncryptError("This app is still waiting for your Muse to send it the key.");
       return;
+    }
+    // Encrypt-time invariant (A1): when a confirmed pin exists, the
+    // key this page would encrypt to must hash to that pin. A page
+    // that launched before a key change (or was checked against a
+    // different key) can hold a key the pin does not cover — refuse,
+    // say plainly that the key has not been confirmed, and route the
+    // user to the key check. With no pin yet (first setup), encrypting
+    // stays allowed.
+    const pin = prefs?.confirmedRecipientHash ?? null;
+    if (pin != null) {
+      const effectiveHash = await sha256Hex(effectiveRecipient.trim());
+      if (effectiveHash !== pin) {
+        setEncryptRefusalNotice(
+          "The key this page would encrypt to has not been confirmed. Check your copy of Muse's key here before encrypting.",
+        );
+        setPostChangeCheck(true);
+        showKeyCheck("flow");
+        return;
+      }
     }
     setEncryptError("");
     setEncrypting(true);
@@ -1144,16 +1430,17 @@ export function App() {
       nav = { next: { label: "Next", onClick: () => setScreen({ kind: "setup", mode: "flow", step: "key" }) } };
     } else if (screen.step === "key") {
       if (deliveryHandover) {
-        // A changed key arrived with this launch: saving the new copy
-        // proceeds to Encrypt Step 1. The confirmation is pending for
-        // the next launch — it does not happen in this sitting.
+        // A key change was detected at launch: saving the new copy
+        // proceeds straight to the key check in the SAME sitting
+        // (Chris's ruling) — until the server confirms a match, the
+        // Encrypt flow stays blocked.
         nav = {
           next: {
-            label: "Next",
+            label: "Continue to the key check",
             onClick: () => {
               setDeliveryHandover(false);
-              setSetupReason("normal");
-              setScreen({ kind: "encrypt", step: 1 });
+              setPostChangeCheck(true);
+              showKeyCheck("flow");
             },
             disabled: !hasRecipient || (handoverGate && !copySaved),
           },
@@ -1163,7 +1450,10 @@ export function App() {
           back: { label: "Back", onClick: () => showKeyCheck("flow") },
           next: {
             label: "Continue to the key check",
-            onClick: () => showKeyCheck("flow"),
+            onClick: () => {
+              setPostChangeCheck(true);
+              showKeyCheck("flow");
+            },
             disabled: !hasRecipient || (handoverGate && !copySaved),
           },
         };
@@ -1256,25 +1546,51 @@ export function App() {
 
   /** The no-recipient state: no key has ever been delivered, so there
    * is nothing to encrypt to and no key to show or compare against.
-   * The app waits for the user's Muse to send it the key. */
+   * The app waits for the user's Muse to send it the key. "Check
+   * again" re-runs the launch resolution in place, so a key delivered
+   * while this page is open is picked up without a relaunch. When the
+   * delivery read itself failed, the text says so — that is a
+   * different claim from "no key was sent". */
   function renderWaitingForKey() {
     return (
       <>
         <h1 className="screen-heading text-3xl font-bold leading-tight">Waiting for your Muse</h1>
-        <p className="mt-4 text-lg leading-relaxed">
-          This app is waiting for your Muse to send it the key. Ask your Muse to open
-          Credential Lockbox for you — it will send the key, and then you can carry on here.
-        </p>
+        {deliveryReadFailed ? (
+          <p className="mt-4 text-lg leading-relaxed">
+            This app tried to read the key your Muse sent, but the read failed — that
+            isn't the same as no key being sent. Check again in a moment.
+          </p>
+        ) : (
+          <p className="mt-4 text-lg leading-relaxed">
+            This app is waiting for your Muse to send it the key. Ask your Muse to open
+            Credential Lockbox for you — it will send the key, and then you can carry on here.
+          </p>
+        )}
+        <div className="mt-5">
+          <button
+            type="button"
+            onClick={() => void handleCheckAgain()}
+            disabled={checkingAgain}
+            className="min-h-[48px] rounded-full border border-[var(--border)] bg-[var(--surface)] px-5 text-base font-medium disabled:opacity-40"
+          >
+            {checkingAgain ? "Checking…" : "Check again"}
+          </button>
+        </div>
       </>
     );
   }
 
   /** The key check screen's content — shared by the Setup flow and the
-   * hub's single-screen visit. The intro paragraph and the "delivered
-   * with this page" line stay visible in every state: entering text
-   * never hides the text above the field. With no recipient at all
-   * there is nothing to compare against: the waiting state shows
-   * instead. */
+   * hub's single-screen visit. The intro paragraph and the key status
+   * line stay visible in every state: entering text never hides the
+   * text above the field. The verdict comes from the server (checkKey
+   * compares the paste against the persisted recipient); this page
+   * never compares against a locally held key string. Wording about
+   * where the key came from is exact: a this-page delivery is claimed
+   * only when this launch actually consumed a delivery — when the key
+   * came from the persisted store, the texts say so. With no
+   * recipient at all there is nothing to check against: the waiting
+   * state shows instead. */
   function renderKeyCheck() {
     if (!hasRecipient) {
       return <div className="contents">{renderWaitingForKey()}</div>;
@@ -1282,6 +1598,16 @@ export function App() {
     return (
       <div className={`contents ${keysMatch || keysMismatch ? "keycheck-verdict" : ""}`}>
         <h1 className="screen-heading text-3xl font-bold leading-tight">Check Muse's key</h1>
+        {encryptRefusalNotice ? (
+          <div
+            className="mt-5 rounded-[var(--radius)] border border-[var(--warn-border)] bg-[var(--warn-bg)] px-4 py-3"
+            role="alert"
+          >
+            <p className="text-base font-semibold text-[var(--warn-text)]">
+              {encryptRefusalNotice}
+            </p>
+          </div>
+        ) : null}
         {gateNotice ? (
           // The gate banner is standing text: it stays visible in
           // every gate state (arrival, match, mismatch). When a
@@ -1296,17 +1622,29 @@ export function App() {
             role="alert"
           >
             <p className="text-base font-semibold text-[var(--warn-text)]">
-              Last time, you saved a copy of Muse's key. Confirm it here before you
-              encrypt anything.
+              {postChangeCheck
+                ? "Muse's key changed, and your copy of the new key hasn't been confirmed yet. Confirm it here before you encrypt anything."
+                : "Last time, you saved a copy of Muse's key. Confirm it here before you encrypt anything."}
             </p>
           </div>
         ) : null}
-        <p className="mt-3 text-base leading-relaxed">
-          Paste your copy of Muse's key — the one saved when you set up Credential
-          Lockbox — and this page will check it against the key delivered with this page.
-        </p>
+        {postChangeCheck ? (
+          <p className="mt-3 text-base leading-relaxed">
+            Paste your copy of Muse's new key from your password manager — the copy you
+            saved there — and this page will check it against{" "}
+            {deliveredThisLaunch ? "the key delivered with this page" : "the key Muse sent this app"}.
+          </p>
+        ) : (
+          <p className="mt-3 text-base leading-relaxed">
+            Paste your copy of Muse's key — the one saved when you set up Credential
+            Lockbox — and this page will check it against{" "}
+            {deliveredThisLaunch ? "the key delivered with this page" : "the key Muse sent this app"}.
+          </p>
+        )}
         <p className="mt-3 text-base font-medium text-[var(--text)]" role="status">
-          Muse's key: delivered with this page ✓
+          {deliveredThisLaunch
+            ? "Muse's key: delivered with this page ✓"
+            : "Muse's key: on file in this app ✓"}
         </p>
         <div className="mt-4">
           <label htmlFor="recipient-input" className={labelClass}>
@@ -1317,6 +1655,7 @@ export function App() {
           </label>
           <textarea
             id="recipient-input"
+            {...FIELDS.checkKey.candidate}
             value={recipientRaw}
             onChange={(e) => {
               const cleaned = extractAgeKey(e.target.value);
@@ -1341,6 +1680,11 @@ export function App() {
           {!recipientValid && recipientRaw.length > 0 ? (
             <p className="mt-2 text-base font-medium text-[var(--bad)]">{recipientCheck.message}</p>
           ) : null}
+          {keyCheckPending ? (
+            <p className="mt-2 text-base text-[var(--dim)]" role="status">
+              Checking…
+            </p>
+          ) : null}
           {keysMatch ? (
             <div
               className="mt-3 rounded-[var(--radius)] border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-3"
@@ -1348,7 +1692,9 @@ export function App() {
             >
               <p className="text-base font-semibold text-[var(--accent)]">The keys match</p>
               <p className="density-hide-compact mt-1 text-sm text-[var(--text)]">
-                Your copy of Muse's key agrees with the key delivered with this page.
+                {deliveredThisLaunch
+                  ? "Your copy of Muse's key agrees with the key delivered with this page."
+                  : "Your copy of Muse's key agrees with the key Muse sent this app."}
               </p>
             </div>
           ) : null}
@@ -1372,23 +1718,29 @@ export function App() {
           {/* The bypass is standing furniture (item 33): it stays on
               screen whether or not the field holds text. It only takes
               effect while the field is empty — typing anything clears
-              the tick (see the field's onChange). */}
-          <div className="mt-3">
-            <label className="flex min-h-[48px] cursor-pointer items-start gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-              <input
-                type="checkbox"
-                checked={bypassKeyCheck}
-                onChange={(e) => setBypassKeyCheck(e.target.checked)}
-                className="mt-1 h-5 w-5 shrink-0 accent-[var(--accent)]"
-              />
-              <span className="text-base">Continue without checking the key</span>
-            </label>
-            <p className="mt-2 text-sm text-[var(--dim)]">
-              The check proves your copy of Muse's key matches the key this page encrypts
-              to. Without it, a wrong key would mean Muse can't read what you send — and
-              you'll be asked to check again next time.
-            </p>
-          </div>
+              the tick (see the field's onChange). On the
+              post-key-change check it is NOT shown at all: there,
+              continuing without a match must not unblock encryption.
+              It remains on the first-setup next-launch gate, where
+              bypassing leaves the confirmation pending. */}
+          {!postChangeCheck ? (
+            <div className="mt-3">
+              <label className="flex min-h-[48px] cursor-pointer items-start gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={bypassKeyCheck}
+                  onChange={(e) => setBypassKeyCheck(e.target.checked)}
+                  className="mt-1 h-5 w-5 shrink-0 accent-[var(--accent)]"
+                />
+                <span className="text-base">Continue without checking the key</span>
+              </label>
+              <p className="mt-2 text-sm text-[var(--dim)]">
+                The check proves your copy of Muse's key matches the key this page encrypts
+                to. Without it, a wrong key would mean Muse can't read what you send — and
+                you'll be asked to check again next time.
+              </p>
+            </div>
+          ) : null}
           <p className="mt-3 text-sm text-[var(--dim)]">
             Lost your copy? Ask your Muse to send it again.
           </p>
@@ -1524,14 +1876,26 @@ export function App() {
             ) : screen.step === "key" ? (
               <>
                 <h1 className="screen-heading text-3xl font-bold leading-tight">
-                  {keyUpdated ? "Save your new copy of Muse's key" : "Your copy of Muse's key"}
+                  {rotationHandover
+                    ? "Muse's key has been rotated"
+                    : keyUpdated
+                      ? "Save your new copy of Muse's key"
+                      : "Your copy of Muse's key"}
                 </h1>
                 {keyUpdated ? (
                   <>
-                    <p className="mt-3 text-base leading-relaxed">
-                      Muse's key has changed — the old copy will no longer match, so replace it
-                      with this one.
-                    </p>
+                    {rotationHandover ? (
+                      <p className="mt-3 text-base leading-relaxed">
+                        Muse replaced its key as a planned change — nothing is wrong. The
+                        old copy will no longer match, so save your copy of the new key as
+                        before: replace the old copy with this one.
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-base leading-relaxed">
+                        Muse's key has changed — the old copy will no longer match, so replace it
+                        with this one.
+                      </p>
+                    )}
                     <p className="mt-2 text-base leading-relaxed">
                       Save a copy of it in your password manager (or somewhere safe that you can
                       find again later)
@@ -1718,13 +2082,10 @@ export function App() {
               <>
                 <h1 className="screen-heading text-3xl font-bold leading-tight">Other ways to encrypt</h1>
                 <p className="other-text mt-4 text-base leading-relaxed">
-                  This app is installed by default and works fully on its own. There is also an
+                  This app is the main way to encrypt for your Muse. There is also an
                   optional utility for people who prefer a terminal: a script called handoff
-                  (handoff.sh / handoff.ps1). It is another way to encrypt — it produces exactly
-                  the same encrypted text as this page. It does not send anything: its output is
-                  pasted into a chat, just like this page's Copy. You can use both — this app for
-                  your phone, the script for your computer. Setting it up is separate and
-                  optional.
+                  (handoff.sh / handoff.ps1). It encrypts in the same format as this page,
+                  and your Muse reads both the same way.
                 </p>
                 <ol className="other-text mt-4 list-decimal space-y-2 pl-5 text-base leading-relaxed">
                   <li>
@@ -1791,6 +2152,11 @@ export function App() {
               <button
                 type="button"
                 onClick={() => {
+                  // The hub's key check is a voluntary re-check, not
+                  // the launch gate or the post-change check.
+                  setGateNotice(false);
+                  setPostChangeCheck(false);
+                  setEncryptRefusalNotice(null);
                   setSubReturn({ kind: "hub" });
                   showKeyCheck("single");
                 }}
@@ -1896,13 +2262,19 @@ export function App() {
             <>
             <div>
               <h2 className="screen-heading text-base font-semibold text-[var(--text)]">
-                Muse's key (delivered with this page)
+                {deliveredThisLaunch
+                  ? "Muse's key (delivered with this page)"
+                  : "Muse's key (stored in this app)"}
               </h2>
               <div
                 className="mt-2 select-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-4 py-4"
                 style={{ userSelect: "none", WebkitUserSelect: "none" }}
                 onCopy={(e) => e.preventDefault()}
-                aria-label="Muse's key (delivered with this page)"
+                aria-label={
+                  deliveredThisLaunch
+                    ? "Muse's key (delivered with this page)"
+                    : "Muse's key (stored in this app)"
+                }
               >
                 <p className="break-all font-mono text-lg leading-relaxed">
                   {museRecipient.trim()}
@@ -1931,7 +2303,7 @@ export function App() {
         ) : screen.kind === "sentitems" ? (
           <section aria-label="Sent to Muse in this prototype" className="flex flex-1 flex-col">
             <h1 className="screen-heading text-3xl font-bold leading-tight">Sent to Muse in this prototype</h1>
-            <p className="mt-2 text-sm text-[var(--dim)]">Test items only.</p>
+            <p className="mt-2 text-sm text-[var(--dim)]">Test items only. Showing the newest 20.</p>
             {(savedList.data?.items ?? []).length === 0 ? (
               <p className="mt-3 text-base text-[var(--dim)]">Nothing sent yet.</p>
             ) : null}
@@ -1986,6 +2358,12 @@ export function App() {
             <p className="mt-3 text-base leading-relaxed">
               This page doesn't check for new versions — your Muse does, and tells you in chat
               when one is available.
+            </p>
+            <p className="mt-3 text-base leading-relaxed">
+              Local storage: {storagePersistenceText(storagePersistence.local)}
+            </p>
+            <p className="mt-3 text-base leading-relaxed">
+              Session storage: {storagePersistenceText(storagePersistence.session)}
             </p>
           </section>
         ) : screen.kind === "receipt" ? (
