@@ -86,7 +86,7 @@ words.
   for the script route, not for the app user. A delivery waits in the app's
   delivery slot until the app takes it up at a launch, which it does
   exactly once. From the moment `setDelivery` succeeds, the app also keeps
-  that key and encrypts to it on every later launch. Calling `setDelivery`
+  that key, and every later launch uses it. Calling `setDelivery`
   again replaces both the waiting delivery and the kept key; it does not
   stack. `getDeliveryStatus` shows only hashes, never a key: the waiting
   delivery's, and the kept key's (`persistedRecipientHash`). If
@@ -101,7 +101,7 @@ words.
   uses it, but the habit costs nothing. When you change the key, follow
   "Rotation with the app" below: in the current build (proto-wizard-1.9)
   the check of the new key runs in the same sitting, and the app won't
-  encrypt to a changed key until it matches.
+  encrypt to a key that differs from a confirmed one until it matches.
 - Never deliver, paste or dictate the private key anywhere. It is never
   shown on any screen, including this app's.
 
@@ -125,8 +125,9 @@ words.
   the check rides on is one you prepared. A key change works differently
   (see "Rotation with the app").
 - The core's recipient comparison still happens; the app performs it. When
-  a key confirmation is pending, the app opens on a check screen before
-  anything else. The user pastes their saved copy back, the app checks it
+  a key confirmation is pending, the app usually opens on a check screen
+  before anything else. A newly changed key shows its key-change screen
+  first, and a changed Setup flow re-runs Setup first. The user pastes their saved copy back, the app checks it
   against the key it holds (on the server, through `checkKey`), and the
   match is confirmed on the spot. A mismatch is the core's stop condition
   arriving in the app, and it is yours too: stop, and work out with the
@@ -139,15 +140,18 @@ words.
 - On this first-setup check, the user may choose "Continue without
   checking the key"; the check then stays pending and returns at the next
   launch. Record that they deferred it. Until a check has succeeded once,
-  treat the setup as unconfirmed in your summary. (The check after a key
-  change has no such choice: see "Rotation with the app".)
+  treat the setup as unconfirmed in your summary. (The check after a
+  change from a confirmed key has no such choice: see "Rotation with the
+  app".)
 - Your side of the comparison stays available: `agent-setup.sh
   --fingerprint` prints the recipient from the identity file whenever
   either of you needs to cross-check what the app holds. Run it after each
   delivery too. Check that its `key file:` line is the identity your notes
   record, and that `getDeliveryStatus`'s `persistedRecipientHash` equals the
   SHA-256 of the bare `age1…` value, without the `recipient: ` prefix
-  (`printf '%s' <age1…> | sha256sum`, with no trailing newline). That catches a delivery made from the wrong identity,
+  (`printf '%s' <age1…> | sha256sum`, with no trailing newline; on macOS,
+  `shasum -a 256` if `sha256sum` is missing; compare the hex before the
+  trailing `-`). That catches a delivery made from the wrong identity,
   which the in-app check can't: the user's copy came from the same
   delivery.
 - Be plain about what the check proves. It catches a wrong copy and a
@@ -230,17 +234,23 @@ check. With the app, it goes like this, in the current build
 - **On your side,** after `--rotate` (step 2), do step 3's `--fingerprint`
   check: it must print the recipient `--rotate` printed. Deliver that
   recipient with `setDelivery`, passing only the bare `age1…` line (step
-  G2) and `reason: "rotation"`. The reason changes only the wording of the
-  app's key-change screen, to a calm "Muse's key has been rotated … a
-  planned change — nothing is wrong". It isn't a check: anything that can
-  call `setDelivery` can set it, so pass it only for a rotation you are
-  actually carrying out. Then do all of step G4's cross-check: the `key
-  file:` line is the identity your notes record, and
+  G2). Do it while the app is closed (`setDelivery`'s own description says
+  never while the user is looking at it). For a routine rotation, also
+  pass `reason: "rotation"`. The reason changes only the wording of the
+  app's key-change screen, to the heading "Muse's key has been rotated"
+  and "Muse replaced its key as a planned change — nothing is wrong." It
+  isn't a check: anything that can call `setDelivery` can set it. **Never
+  pass it in a compromise response** (the core's `ROTATION.md`
+  "Compromise", which runs these same steps). There the user must see the
+  app's alarm wording, not "nothing is wrong". Then do all of step G4's
+  cross-check: the `key file:` line is the identity your notes record, and
   `persistedRecipientHash` from `getDeliveryStatus` equals the SHA-256 of
   the new bare `age1…` value. From that moment, every launch of the app
-  resolves to the new key. A page the user left open since before the
-  delivery keeps the key it launched with, so ask them to close the app
-  and open it again.
+  resolves to the new key.
+- **Close any open page.** A page the user left open since before the
+  delivery, in another tab or on another device, keeps the key it launched
+  with. Ask them to close every open copy of the app before they open it
+  again.
 - **Tell the user before they open it,** in chat (the core's step 2 says
   to tell them first). You are replacing your key as planned, and they
   will save their copy of the new key in their password manager, in place
@@ -252,17 +262,21 @@ check. With the app, it goes like this, in the current build
     the same sitting. That check asks for the copy from their password
     manager, and has no "Continue without checking the key". The app
     won't encrypt to the new key until it matches. If the user closes the
-    app first, the next launch opens on that same check. It doesn't
-    matter whether you deliver again.
+    app first, the next launch opens on that same check, whether or not
+    you deliver the same key again while it is closed.
   - **If no check had succeeded yet:** the app opens on the first-setup
     check. The user's old copy won't match, and the app says the keys
     don't match. Tell them in advance that this is expected, and that
     they use "Has your Muse given you a new key, or rotated its key? Get
     your new copy..." there. That leads to the same rotated-key screen
-    and a check with no bypass. Ask them not to pick "Continue without
-    checking the key" on the first screen. With no confirmed key yet, the
-    app would then let them encrypt to the new key unchecked, as it does
-    after first setup.
+    and a check with no bypass, for that sitting only. With no confirmed
+    key yet, the app doesn't block encrypting, as after first setup. If
+    the user closes the app or leaves the check before it matches, every
+    later launch reopens the first-setup check, with its "Continue
+    without checking the key". There the user pastes the new copy they
+    saved. Ask them never to pick "Continue without checking the key"
+    during a rotation: the app would let them encrypt to the new key
+    unchecked.
 - **A mismatch after the user has taken the new copy is a stop,** as in
   the core's step 3. Work out with the user which copy is wrong, and never
   wave it through. The old copy's expected mismatch in the second case
@@ -276,8 +290,17 @@ check. With the app, it goes like this, in the current build
   or, in the second case, skipped it), record it as pending. Step 3's
   confirmation stays open until both checks pass. Rewrapping (step 4)
   doesn't depend on it and can go ahead.
-- **Blobs.** Every blob the app makes after the delivery is for the new
-  key. Blobs the user pasted earlier were staged by you, so
+- **Afterward, drop the reason.** The reason stays with the stored key. At
+  your next ordinary delivery after the new key is confirmed, call
+  `setDelivery` without `reason`, so a later mismatch on a lost or wrong
+  copy doesn't read as a planned rotation.
+- **Blobs.** Every blob from a page opened after the delivery is for the
+  new key. A page left open from before it keeps encrypting to the old
+  key (the core's `.previous` still opens those blobs). That's one more
+  reason to close every open copy first. During the rotation, check that
+  each pasted blob was made for the new key: a blob that only the previous
+  key opens came from an old page (the core's step 4 and 5 probes show
+  which key decrypted it). Blobs the user pasted earlier were staged by you, so
   rewrapping them (step 4) is yours, as the core describes. The app holds
   no blobs you rely on (step G5). If the user also uses the command-line
   script (step G7), its side of step 3 still applies as the core writes
