@@ -17,7 +17,7 @@ name: QA Gate
 # ruleset to stop the first; the second stays possible for anyone who can push
 # a branch here. The enforcement that doesn't rest on this file is main's
 # ruleset: one approving review from an account with write access that didn't
-# make the last push (dismissed on every push).
+# make the last push (dismissed when new commits are pushed).
 #
 # "QA Gate" (the status context) is meant to be a required check in main's
 # ruleset: if it is renamed, update the ruleset, or every PR waits on a check
@@ -31,9 +31,15 @@ name: QA Gate
 # pending.
 #
 # Runs can be dropped: a concurrency group keeps one pending run, so a newer
-# run cancels a queued one. If a push's run is dropped, the next label event
-# finds no "QA Gate" status on the head commit yet. It then does what the push's
-# run would have done (pending, remove QA Approved) instead of approving.
+# run cancels a queued one. Two checks stop a dropped run from leaving a stale
+# approval in force. (1) A head commit with no "QA Gate" status yet had its
+# push run dropped: the label event does what that run would have done
+# (pending, remove QA Approved) instead of approving. (2) An approval counts
+# only if the maintainer's last QA Approved came after the PR's last
+# force-push and last reopen (from the PR's events): a force-push back to an
+# older commit keeps that commit's old statuses, so (1) alone can't catch it.
+# What's left: a plain push that lands on a commit already carrying statuses
+# from elsewhere (another PR or branch) and whose run is dropped. That's rare.
 #
 # pull_request_target, not pull_request: it always runs this file as it is on
 # main, so a PR's edits to it can't change its own gate. A change to this file
@@ -92,7 +98,7 @@ jobs:
           # QA Approved left over from an earlier commit, so the label no longer
           # shows an approval this commit doesn't have.
           unapproved_head() {
-            post pending "$PENDING"
+            post pending "${1:-$PENDING}"
             # A 404 means the label isn't on the PR: nothing to remove.
             # Any other failure fails the job, so it shows.
             ERR=$(gh api "repos/$REPO/issues/$PR/labels/QA%20Approved" \
@@ -126,26 +132,37 @@ jobs:
           # No "QA Gate" status on the head yet means the run for its push,
           # open or reopen never happened (a dropped run): treat the head as
           # unapproved rather than trust a label from an earlier commit.
-          SEEN=$(gh api "repos/$REPO/commits/$HEAD/statuses?per_page=100" \
-            --jq '[.[] | select(.context == "QA Gate")] | length')
-          if [ "$SEEN" = "0" ]; then
-            echo "No QA Gate status on $HEAD yet: treating it as unapproved"
-            unapproved_head
-            exit 0
-          fi
+          # The combined status holds the latest status per context, across
+          # all of them (one page is enough for any number of older statuses).
+          SEEN=$(gh api "repos/$REPO/commits/$HEAD/status" \
+            --jq '[.statuses[] | select(.context == "QA Gate")] | length')
+          case "$SEEN" in
+            ''|*[!0-9]*) echo "unexpected statuses reply: '$SEEN'"; exit 1 ;;
+            0)
+              echo "No QA Gate status on $HEAD yet: treating it as unapproved"
+              unapproved_head "QA Approved removed: this commit wasn't checked in; re-apply it after review"
+              exit 0
+              ;;
+          esac
           if [ "$APPROVED" != "true" ]; then
             post pending "$PENDING"
             exit 0
           fi
-          # Who applied QA Approved last: the events list is oldest first.
-          # Captured whole first, so a failed API call fails the job instead of
-          # reading as no one.
+          # The PR's events, oldest first: who applied QA Approved last, and
+          # whether a force-push or reopen came after it. Captured whole
+          # first, so a failed API call fails the job instead of reading as
+          # no one.
           EVENTS=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
-            --jq '.[] | select(.event == "labeled" and .label.name == "QA Approved") | .actor.login')
-          BY=$(printf '%s\n' "$EVENTS" | sed -n '$p')
-          if [ "$BY" = "$MAINTAINER" ]; then
+            --jq '.[] | if .event == "labeled" and .label.name == "QA Approved" then "label \(.actor.login)"
+                       elif .event == "head_ref_force_pushed" or .event == "reopened" then "reset -"
+                       else empty end')
+          LAST=$(printf '%s\n' "$EVENTS" | sed -n '$p')
+          if [ "$LAST" = "label $MAINTAINER" ]; then
             post success "QA testing completed"
+          elif [ "${LAST%% *}" = reset ]; then
+            echo "A force-push or reopen came after the last QA Approved; not approving"
+            unapproved_head "QA Approved removed: the PR was force-pushed or reopened since; re-apply it after review"
           else
-            echo "QA Approved was applied by '${BY:-unknown}', not $MAINTAINER; not approving"
+            echo "QA Approved was applied by '${LAST#label }', not $MAINTAINER; not approving"
             post pending "QA Approved counts only when $MAINTAINER applies it"
           fi
