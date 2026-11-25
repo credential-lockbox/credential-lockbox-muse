@@ -10,11 +10,12 @@ This document does not replace the core instructions. Work from a clone of
 https://github.com/credential-lockbox/credential-lockbox and follow its
 `SETUP.md` throughout: its hard rules, stop conditions, store checklist and
 record-keeping all apply exactly as written. What follows replaces only the
-parts of its steps 3 to 6 that put a script in the user's hands. Where this
-document and the core `SETUP.md` disagree about the user's side, this
-document governs; about everything else, the core governs. This document
-was checked against core release v0.3.2. If a newer core release renumbers
-its steps, stop and ask the user before relying on the step numbers here.
+parts of its steps 3 to 6, and of `ROTATION.md` step 3, that put a script
+in the user's hands. Where this document and the core's `SETUP.md` or
+`ROTATION.md` disagree about the user's side, this document governs; about
+everything else, the core governs. This document was checked against core
+release v0.3.2. If a newer core release renumbers the steps of either
+file, stop and ask the user before relying on the step numbers here.
 
 **Known gap: the core doesn't name this app yet.** No core v0.3.2 document
 names this app, so a Muse that follows the core literally has two reasons
@@ -223,40 +224,65 @@ rotate, the new keypair (`--rotate`), the private key, rewrapping (step 4)
 and retiring the old key (step 5) stay on your side. The app never touches
 a private key. Only the user's side of step 3 changes. The core has the
 user replace their `handoff-<name>.age` and run the script's fingerprint
-check. With the app, it goes like this:
+check. With the app, it goes like this, in the current build
+(proto-wizard-1.8):
 
-- **Before you deliver,** tell the user in chat that you are replacing
-  your key as planned (the core's step 2 already says to tell them first).
-  Tell them the app will show a key-change screen, and that they will save
-  their copy of the new key in their password manager, in place of the old
-  copy.
-- **After step 3's `--fingerprint` check on your side,** deliver the new
-  recipient with `setDelivery`, passing only the bare `age1…` line, as in
-  step G2. Then do step G4's cross-check: `persistedRecipientHash` from
-  `getDeliveryStatus` must equal the SHA-256 of the new bare `age1…` value.
-  From that moment, the app encrypts to the new key on every launch.
-- **Present the app.** The user saves their copy of the new key on the
-  key-change screen, then checks it in the app. In the current build
-  (proto-wizard-1.8), follow step G2's exceptions after a key change. If
-  the user had confirmed the old key, present the launch for the check
-  without delivering again. If no check had succeeded yet, the app opens
-  on the check. The user's old copy doesn't match, and the mismatch box
-  offers "Has your Muse given you a new key, or rotated its key? Get your
-  new copy...". That route is right here, because you announced the
-  change.
-- **A mismatch is a stop,** as in the core's step 3. Work out with the user
-  which copy is wrong, and never wave it through. When the in-app check
-  succeeds, record in your notes that the user confirmed the new key, as
-  step 3 asks. From here on, new blobs are made for the new key.
-- **Blobs the user pasted earlier** were staged by you, so rewrapping them
-  (step 4) is yours, as the core describes. The app holds no blobs you
-  rely on (step G5).
+- **Approval.** The user's recorded approval to use the app as their side
+  despite the known gap (above) covers a rotation's delivery too. If your
+  notes don't record that approval, get it before you deliver.
+- **On your side,** after `--rotate` (step 2), do step 3's `--fingerprint`
+  check: it must print the recipient `--rotate` printed. Deliver that
+  recipient with `setDelivery`, passing only the bare `age1…` line (step
+  G2). Then do all of step G4's cross-check: the `key file:` line is the
+  identity your notes record, and `persistedRecipientHash` from
+  `getDeliveryStatus` equals the SHA-256 of the new bare `age1…` value.
+  From that moment, every launch of the app encrypts to the new key. A page
+  the user left open since before the delivery keeps the key it launched
+  with, so ask them to close the app and open it again.
+- **Tell the user before they open it,** in chat (the core's step 2 says
+  to tell them first). You are replacing your key as planned, and they
+  will save their copy of the new key in their password manager, in place
+  of the old one. What they will see depends on whether a key check had
+  succeeded before:
+  - **If the user had confirmed the old key,** it takes two launches.
+    First, present the app after the delivery. It shows "Muse's key has
+    changed", and the user saves their new copy. The check doesn't happen
+    in that sitting. Then, at the next presentation, don't call
+    `setDelivery`: the app opens on the check of the new key (step G2's
+    exception). Delivering again would show the key-change screen again
+    instead.
+  - **If no check had succeeded yet,** the app opens on the check. The
+    user's old copy won't match, and the app says the keys don't match.
+    Tell them in advance that this is expected, and that they use "Has
+    your Muse given you a new key, or rotated its key? Get your new
+    copy..." there to save the new copy and check it.
+- **A mismatch after the user has taken the new copy is a stop,** as in
+  the core's step 3. Work out with the user which copy is wrong, and never
+  wave it through. The old copy's expected mismatch in the second case
+  above is the only exception.
+- **Confirm in chat before you record it.** The copy the user checks in
+  the app came from the app's own delivery, so the in-app match proves
+  only that they saved and pasted it correctly. Before you record step 3's
+  confirmation, compare their new copy with `--fingerprint` in chat, as
+  step G4 says for a re-saved copy. Then record that the user confirmed
+  the new key. If the user chose "Continue without checking the key",
+  record the check as deferred. Step 3's confirmation stays open until
+  both checks pass. Rewrapping (step 4) doesn't depend on it and can go
+  ahead.
+- **Blobs.** Every blob the app makes after the delivery is already for
+  the new key. Blobs the user pasted earlier were staged by you, so
+  rewrapping them (step 4) is yours, as the core describes. The app holds
+  no blobs you rely on (step G5). If the user also uses the command-line
+  script (step G7), its side of step 3 still applies as the core writes
+  it: they replace `handoff-<name>.age` and check its fingerprint.
 
 ## Stop conditions specific to the app
 
 In addition to the core's: the app refuses a delivered recipient; the app
 build fails or comes up without its server actions; the key check in the
-app reports a mismatch; the user cannot find the copy they saved. For a
+app reports a mismatch (except the old copy's expected mismatch during a
+rotation, in "Rotation with the app"); the user cannot find the copy they
+saved. For a
 lost copy (the app's wording is "Lost your copy? Ask your Muse to send it
 again."): the key itself has not changed, and no new key is generated. The
 user re-saves it from the app's Setup & reset screen (the gear button),
