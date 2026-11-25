@@ -7,7 +7,7 @@
 // before anything is stored.
 
 import { defineAction, z, type ActionsModule, type Ctx } from "@hatch/space-sdk";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import * as schema from "./schema";
 
 const AGE_HEADER = "age-encryption.org/v1";
@@ -62,7 +62,6 @@ type WizardPrefsRow = typeof schema.wizardPrefs.$inferSelect;
 const DEFAULT_PREFS: WizardPrefsRow = {
   id: 1,
   skipWelcome: false,
-  skipKeyCheck: false,
   confirmedRecipientHash: null,
   confirmedBuildFingerprint: null,
   completions: 0,
@@ -70,6 +69,7 @@ const DEFAULT_PREFS: WizardPrefsRow = {
   setupCompleted: false,
   deliveryPref: "save",
   confirmationPending: false,
+  pendingRecipientHash: null,
   completedSetupVersion: null,
 };
 
@@ -93,7 +93,6 @@ async function loadPrefs(ctx: Ctx): Promise<WizardPrefsRow> {
 function prefsResponse(row: WizardPrefsRow) {
   return {
     skipWelcome: row.skipWelcome,
-    skipKeyCheck: row.skipKeyCheck,
     confirmedRecipientHash: row.confirmedRecipientHash,
     confirmedBuildFingerprint: row.confirmedBuildFingerprint,
     completions: row.completions,
@@ -101,13 +100,13 @@ function prefsResponse(row: WizardPrefsRow) {
     setupCompleted: row.setupCompleted,
     deliveryPref: row.deliveryPref,
     confirmationPending: row.confirmationPending,
+    pendingRecipientHash: row.pendingRecipientHash,
     completedSetupVersion: row.completedSetupVersion,
   };
 }
 
 const prefsShape = z.object({
   skipWelcome: z.boolean(),
-  skipKeyCheck: z.boolean(),
   confirmedRecipientHash: z.string().nullable(),
   confirmedBuildFingerprint: z.string().nullable(),
   completions: z.number(),
@@ -115,6 +114,7 @@ const prefsShape = z.object({
   setupCompleted: z.boolean(),
   deliveryPref: z.enum(["save", "copy"]),
   confirmationPending: z.boolean(),
+  pendingRecipientHash: z.string().nullable(),
   completedSetupVersion: z.string().nullable(),
 });
 
@@ -122,7 +122,7 @@ type ReleaseInfoRow = typeof schema.releaseInfo.$inferSelect;
 
 /** The build version this server code ships with. The release-info row is
  * seeded to match it, so a fresh install reports "no release available". */
-const CURRENT_BUILD_VERSION = "proto-wizard-1.8";
+const CURRENT_BUILD_VERSION = "proto-wizard-1.9";
 
 /** The version of the Setup flow this build ships. Setup re-runs at
  * launch only when the user's completed setupVersion differs from it
@@ -215,27 +215,40 @@ async function loadDeliverySlot(ctx: Ctx): Promise<DeliverySlotRow | null> {
 /** Store the recipient in the persisted slot, so it survives launches:
  * the app encrypts to the delivered key on every launch, not only the
  * one that consumed the delivery. Called when a delivery is written
- * (setDelivery) and again when one is consumed at launch. */
-async function persistRecipient(ctx: Ctx, recipient: string): Promise<void> {
+ * (setDelivery) and again when one is consumed at launch. The
+ * delivery's reason (wording data only) is carried into the persisted
+ * record alongside the key. */
+async function persistRecipient(
+  ctx: Ctx,
+  recipient: string,
+  reason: string | null,
+): Promise<void> {
   const db = ctx.db<typeof schema>();
   const writtenAt = new Date();
   await db
     .insert(schema.persistedRecipient)
-    .values({ id: 1, recipient, writtenAt })
+    .values({ id: 1, recipient, writtenAt, reason })
     .onConflictDoUpdate({
       target: schema.persistedRecipient.id,
-      set: { recipient, writtenAt },
+      set: { recipient, writtenAt, reason },
     });
 }
 
-async function loadPersistedRecipient(ctx: Ctx): Promise<string | null> {
+type PersistedRecipientRow = typeof schema.persistedRecipient.$inferSelect;
+
+async function loadPersistedRow(ctx: Ctx): Promise<PersistedRecipientRow | null> {
   const db = ctx.db<typeof schema>();
   const rows = await db
     .select()
     .from(schema.persistedRecipient)
     .where(eq(schema.persistedRecipient.id, 1))
     .limit(1);
-  return rows[0]?.recipient ?? null;
+  return rows[0] ?? null;
+}
+
+async function loadPersistedRecipient(ctx: Ctx): Promise<string | null> {
+  const row = await loadPersistedRow(ctx);
+  return row?.recipient ?? null;
 }
 
 const receiptShape = z.object({
@@ -391,7 +404,7 @@ export const Actions = {
 
   getWizardPrefs: defineAction({
     description:
-      "Returns the wizard's skip/restore preferences (skip toggles, confirmed recipient hash, confirmed build fingerprint, completion count, last key-check time). Stores no credential values.",
+      "Returns the wizard's preferences (skip toggle, confirmed recipient hash, confirmed build fingerprint, completion count, last key-check time, setup state, delivery preference, and the pending-confirmation state including the hash of the key a confirmation is pending for). Stores no credential values.",
     request: z.object({}),
     response: prefsShape,
     async handler(ctx) {
@@ -402,45 +415,17 @@ export const Actions = {
 
   setWizardPrefs: defineAction({
     description:
-      "Updates the wizard's skip/restore preferences: either skip toggle, and — when the user confirms the recipient key — the recipient's SHA-256 hash, the build fingerprint, and the key-check time.",
+      "Updates the wizard's two client-writable preferences ONLY: the welcome skip toggle and the delivery preference. The key pin, the confirmation-pending flags, and the setup state are NOT writable here — they change only through checkKey, markKeyChangePending, completeSetup, and resetWizardPrefs.",
     request: z.object({
       skipWelcome: z.boolean().optional(),
-      skipKeyCheck: z.boolean().optional(),
-      confirmedRecipientHash: z
-        .string()
-        .regex(/^[0-9a-f]{64}$/)
-        .nullable()
-        .optional(),
-      confirmedBuildFingerprint: z.string().max(100).nullable().optional(),
-      lastKeyCheckAt: z.string().max(40).nullable().optional(),
-      setupCompleted: z.boolean().optional(),
       deliveryPref: z.enum(["save", "copy"]).optional(),
-      confirmationPending: z.boolean().optional(),
-      completedSetupVersion: z.string().max(40).nullable().optional(),
     }),
     response: prefsShape,
     async handler(ctx, args) {
       await loadPrefs(ctx);
       const patch: Partial<WizardPrefsRow> = {};
       if (args.skipWelcome !== undefined) patch.skipWelcome = args.skipWelcome;
-      if (args.skipKeyCheck !== undefined) patch.skipKeyCheck = args.skipKeyCheck;
-      if (args.setupCompleted !== undefined) patch.setupCompleted = args.setupCompleted;
       if (args.deliveryPref !== undefined) patch.deliveryPref = args.deliveryPref;
-      if (args.confirmationPending !== undefined) {
-        patch.confirmationPending = args.confirmationPending;
-      }
-      if (args.completedSetupVersion !== undefined) {
-        patch.completedSetupVersion = args.completedSetupVersion;
-      }
-      if (args.confirmedRecipientHash !== undefined) {
-        patch.confirmedRecipientHash = args.confirmedRecipientHash;
-      }
-      if (args.confirmedBuildFingerprint !== undefined) {
-        patch.confirmedBuildFingerprint = args.confirmedBuildFingerprint;
-      }
-      if (args.lastKeyCheckAt !== undefined) {
-        patch.lastKeyCheckAt = args.lastKeyCheckAt ? new Date(args.lastKeyCheckAt) : null;
-      }
       const db = ctx.db<typeof schema>();
       if (Object.keys(patch).length > 0) {
         await db
@@ -448,6 +433,86 @@ export const Actions = {
           .set(patch)
           .where(eq(schema.wizardPrefs.id, 1));
       }
+      const row = await loadPrefs(ctx);
+      ctx.invalidateQueries();
+      return prefsResponse(row);
+    },
+  }),
+
+  checkKey: defineAction({
+    description:
+      "The key check, server-side: compares a candidate copy of Muse's key against the PERSISTED recipient held here — the client never compares against a locally held key string and never writes the pin itself. On a match ONLY, pins the confirmation (the persisted recipient's SHA-256 hash, the check time, and the current build fingerprint), clears the pending confirmation and the pending recipient hash, and returns match:true. On a mismatch — including a malformed candidate or no persisted key — it changes nothing and returns match:false. Returns only the boolean: never any key material and never any hash.",
+    request: z.object({
+      candidate: z.string().min(1).max(10000),
+    }),
+    response: z.object({
+      match: z.boolean(),
+    }),
+    async handler(ctx, args) {
+      const candidate = args.candidate.replace(/\s/g, "");
+      if (recipientShapeError(candidate)) {
+        return { match: false };
+      }
+      const persisted = await loadPersistedRecipient(ctx);
+      if (persisted == null || candidate !== persisted) {
+        return { match: false };
+      }
+      await loadPrefs(ctx);
+      const db = ctx.db<typeof schema>();
+      await db
+        .update(schema.wizardPrefs)
+        .set({
+          confirmedRecipientHash: await sha256Hex(persisted),
+          confirmedBuildFingerprint: CURRENT_BUILD_VERSION,
+          lastKeyCheckAt: new Date(),
+          confirmationPending: false,
+          pendingRecipientHash: null,
+        })
+        .where(eq(schema.wizardPrefs.id, 1));
+      ctx.invalidateQueries();
+      return { match: true };
+    },
+  }),
+
+  markKeyChangePending: defineAction({
+    description:
+      "Marks a key change as awaiting confirmation: sets confirmationPending and records pendingRecipientHash as the SHA-256 of the PERSISTED recipient, computed here from the stored recipient — it takes no arguments, so no client-supplied value can name the key a confirmation is pending for. Called by the app at launch when it detects the resolved key differs from the confirmed pin and no confirmation is already pending for that key.",
+    request: z.object({}),
+    response: prefsShape,
+    async handler(ctx) {
+      await loadPrefs(ctx);
+      const persisted = await loadPersistedRecipient(ctx);
+      const db = ctx.db<typeof schema>();
+      await db
+        .update(schema.wizardPrefs)
+        .set({
+          confirmationPending: true,
+          pendingRecipientHash: persisted ? await sha256Hex(persisted) : null,
+        })
+        .where(eq(schema.wizardPrefs.id, 1));
+      const row = await loadPrefs(ctx);
+      ctx.invalidateQueries();
+      return prefsResponse(row);
+    },
+  }),
+
+  completeSetup: defineAction({
+    description:
+      "The Setup flow's finish path: records setup as completed at the current setupVersion and ALWAYS sets confirmationPending — the handover in the flow delivered a key for saving, so the next launch asks for its confirmation at the key-check gate. Replaces the old direct prefs write at the end of Setup.",
+    request: z.object({}),
+    response: prefsShape,
+    async handler(ctx) {
+      await loadPrefs(ctx);
+      const release = await loadReleaseInfo(ctx);
+      const db = ctx.db<typeof schema>();
+      await db
+        .update(schema.wizardPrefs)
+        .set({
+          setupCompleted: true,
+          completedSetupVersion: release.setupVersion || CURRENT_SETUP_VERSION,
+          confirmationPending: true,
+        })
+        .where(eq(schema.wizardPrefs.id, 1));
       const row = await loadPrefs(ctx);
       ctx.invalidateQueries();
       return prefsResponse(row);
@@ -474,7 +539,7 @@ export const Actions = {
 
   resetWizardPrefs: defineAction({
     description:
-      "Resets the wizard to first-run state: clears the confirmed recipient pin, both skip settings, the delivery preference, and the setup flag. Saved blobs are NOT touched — they are encrypted and staged for Muse.",
+      "Resets the app to first-run state: clears the confirmed recipient pin, the pending-confirmation flags (including the pending recipient hash), the skip setting, the delivery preference, and the setup flag — AND forgets the stored key: the persisted recipient and any waiting delivery are cleared too, so after a reset the app has no key until Muse delivers one again. Saved blobs are NOT touched — they are encrypted and staged for Muse.",
     request: z.object({}),
     response: prefsShape,
     async handler(ctx) {
@@ -484,16 +549,27 @@ export const Actions = {
         .update(schema.wizardPrefs)
         .set({
           skipWelcome: false,
-          skipKeyCheck: false,
           confirmedRecipientHash: null,
           confirmedBuildFingerprint: null,
           lastKeyCheckAt: null,
           setupCompleted: false,
           deliveryPref: "save",
           confirmationPending: false,
+          pendingRecipientHash: null,
           completedSetupVersion: null,
         })
         .where(eq(schema.wizardPrefs.id, 1));
+      // Forget the stored key: the persisted recipient and any
+      // waiting delivery go too, so the app truly returns to
+      // first-run state.
+      await db
+        .update(schema.persistedRecipient)
+        .set({ recipient: null, writtenAt: null, reason: null })
+        .where(eq(schema.persistedRecipient.id, 1));
+      await db
+        .update(schema.deliverySlot)
+        .set({ recipient: null, serviceLabel: null, writtenAt: null, reason: null })
+        .where(eq(schema.deliverySlot.id, 1));
       const row = await loadPrefs(ctx);
       ctx.invalidateQueries();
       return prefsResponse(row);
@@ -543,10 +619,11 @@ export const Actions = {
 
   setDelivery: defineAction({
     description:
-      "Writes the Delivery Slot: the recipient key (a public age key) to deliver with the app's next launch, plus an optional service label to pre-fill on Encrypt Step 1. Overwrites any delivery already waiting.",
+      "Writes the Delivery Slot: the recipient key (a public age key) to deliver with the app's next launch, plus an optional service label to pre-fill on Encrypt Step 1 and an optional reason (e.g. 'rotation' for a planned key rotation — wording data for the page only; no gate or check reads it). For Muse only: call it before presenting the app, never while the user is looking at it. Overwrites any delivery already waiting, and persists the recipient (with its reason) immediately, so it survives launches.",
     request: z.object({
       recipient: z.string().trim().min(1).max(200),
       serviceLabel: z.string().trim().min(1).max(200).optional(),
+      reason: z.string().trim().min(1).max(100).optional(),
     }),
     response: z.object({
       ok: z.boolean(),
@@ -559,6 +636,7 @@ export const Actions = {
         return { ok: false, error: shapeError, writtenAt: null };
       }
       const writtenAt = new Date();
+      const reason = args.reason ?? null;
       const db = ctx.db<typeof schema>();
       await db
         .insert(schema.deliverySlot)
@@ -567,6 +645,7 @@ export const Actions = {
           recipient: args.recipient,
           serviceLabel: args.serviceLabel ?? null,
           writtenAt,
+          reason,
         })
         .onConflictDoUpdate({
           target: schema.deliverySlot.id,
@@ -574,12 +653,13 @@ export const Actions = {
             recipient: args.recipient,
             serviceLabel: args.serviceLabel ?? null,
             writtenAt,
+            reason,
           },
         });
       // The delivered recipient is also persisted, so it survives
       // launches: the app encrypts to it on every launch, not only
       // the one that consumes this delivery.
-      await persistRecipient(ctx, args.recipient);
+      await persistRecipient(ctx, args.recipient, reason);
       ctx.invalidateQueries();
       return { ok: true, error: null, writtenAt: writtenAt.toISOString() };
     },
@@ -587,7 +667,7 @@ export const Actions = {
 
   getDeliveryStatus: defineAction({
     description:
-      "Reports whether a delivery is waiting in the Delivery Slot — its recipient's SHA-256 hash only (never the recipient itself), the optional service label, and when it was written. Also returns the persisted recipient's SHA-256 hash (persistedRecipientHash; null when no key has ever been delivered) — hash only, never the key itself.",
+      "Reports whether a delivery is waiting in the Delivery Slot — its recipient's SHA-256 hash only (never the recipient itself), the optional service label, and when it was written. Also returns the persisted recipient's SHA-256 hash (persistedRecipientHash; null when no key has ever been delivered) — hash only, never the key itself. persistedRecipientHash is the key the NEXT launch will use: a page already open keeps the key it launched with, even if a new delivery lands while it is open.",
     request: z.object({}),
     response: z.object({
       waiting: z.boolean(),
@@ -621,39 +701,77 @@ export const Actions = {
 
   consumeDelivery: defineAction({
     description:
-      "The app's launch path: returns the waiting delivery (recipient and optional service label) and clears the slot, so each delivery is consumed exactly once. When no delivery is waiting, returns the persisted recipient from the most recent delivery instead (delivered:false, fromPersisted:true), so the app encrypts to the delivered key on every launch. recipient is null only when no key has ever been delivered. Agents must not call this action. It is the app's own launch path; calling it consumes a delivery the user may never see.",
+      "The app's own launch path — called by the app itself at launch (and by its waiting state's 'Check again'); agents must not call it, since calling it consumes a delivery the user may never see. Returns the waiting delivery (recipient, optional service label, and the delivery's reason) and clears the slot atomically, so each delivery is consumed exactly once and a setDelivery landing mid-consume cannot be lost. When no delivery is waiting, returns the persisted recipient from the most recent delivery instead (delivered:false, fromPersisted:true), so the app encrypts to the delivered key on every launch. recipient is null only when no key has ever been delivered.",
     request: z.object({}),
     response: z.object({
       delivered: z.boolean(),
       fromPersisted: z.boolean(),
       recipient: z.string().nullable(),
       serviceLabel: z.string().nullable(),
+      reason: z.string().nullable(),
     }),
     async handler(ctx) {
-      const row = await loadDeliverySlot(ctx);
-      if (!row?.recipient) {
-        const persisted = await loadPersistedRecipient(ctx);
-        return {
-          delivered: false,
-          fromPersisted: persisted != null,
-          recipient: persisted,
-          serviceLabel: null,
-        };
-      }
       const db = ctx.db<typeof schema>();
-      await db
-        .update(schema.deliverySlot)
-        .set({ recipient: null, serviceLabel: null, writtenAt: null })
-        .where(eq(schema.deliverySlot.id, 1));
-      // Consuming a delivery persists its recipient, so later launches
-      // resolve the same key from the persisted slot.
-      await persistRecipient(ctx, row.recipient);
-      ctx.invalidateQueries();
+      // Atomic read-and-clear: read the waiting row, then clear the
+      // slot with a compare-and-clear update that only matches while
+      // the slot still holds the exact delivery just read (same
+      // recipient, same write time). A setDelivery landing between
+      // the read and the clear overwrites the slot, the clear matches
+      // nothing, and the loop re-reads and consumes the delivery that
+      // is actually waiting — a delivery can never be silently lost
+      // to a mid-consume write.
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const row = await loadDeliverySlot(ctx);
+        if (!row?.recipient) {
+          const persisted = await loadPersistedRow(ctx);
+          return {
+            delivered: false,
+            fromPersisted: persisted?.recipient != null,
+            recipient: persisted?.recipient ?? null,
+            serviceLabel: null,
+            reason: persisted?.reason ?? null,
+          };
+        }
+        const cleared = await db
+          .update(schema.deliverySlot)
+          .set({ recipient: null, serviceLabel: null, writtenAt: null, reason: null })
+          .where(
+            and(
+              eq(schema.deliverySlot.id, 1),
+              eq(schema.deliverySlot.recipient, row.recipient),
+              row.writtenAt
+                ? eq(schema.deliverySlot.writtenAt, row.writtenAt)
+                : isNull(schema.deliverySlot.writtenAt),
+            ),
+          )
+          .returning({ id: schema.deliverySlot.id });
+        if (cleared.length > 0) {
+          // Consuming a delivery persists its recipient (with its
+          // reason), so later launches resolve the same key from the
+          // persisted slot.
+          await persistRecipient(ctx, row.recipient, row.reason ?? null);
+          ctx.invalidateQueries();
+          return {
+            delivered: true,
+            fromPersisted: false,
+            recipient: row.recipient,
+            serviceLabel: row.serviceLabel,
+            reason: row.reason ?? null,
+          };
+        }
+        // The slot changed under us: loop and consume what is
+        // actually waiting now.
+      }
+      // Repeated contention: leave the waiting delivery in the slot
+      // for the next launch (nothing is lost) and resolve this launch
+      // from the persisted recipient.
+      const persisted = await loadPersistedRow(ctx);
       return {
-        delivered: true,
-        fromPersisted: false,
-        recipient: row.recipient,
-        serviceLabel: row.serviceLabel,
+        delivered: false,
+        fromPersisted: persisted?.recipient != null,
+        recipient: persisted?.recipient ?? null,
+        serviceLabel: null,
+        reason: persisted?.reason ?? null,
       };
     },
   }),

@@ -27,7 +27,6 @@ export const savedBlobs = sqliteTable("saved_blobs", {
 export const wizardPrefs = sqliteTable("wizard_prefs", {
   id: integer("id").primaryKey(),
   skipWelcome: integer("skip_welcome", { mode: "boolean" }).notNull().default(false),
-  skipKeyCheck: integer("skip_key_check", { mode: "boolean" }).notNull().default(false),
   confirmedRecipientHash: text("confirmed_recipient_hash"),
   confirmedBuildFingerprint: text("confirmed_build_fingerprint"),
   completions: integer("completions").notNull().default(0),
@@ -39,6 +38,15 @@ export const wizardPrefs = sqliteTable("wizard_prefs", {
   // cleared only by a successful key-check match. While set, the next
   // launch opens on the key check as a gate before Encrypt Step 1.
   confirmationPending: integer("confirmation_pending", { mode: "boolean" }).notNull().default(false),
+  // SHA-256 hash of the recipient a pending confirmation is FOR, set
+  // server-side by markKeyChangePending from the persisted recipient
+  // (never from client input) when a key change is detected, and
+  // cleared by a successful checkKey match. Binds the key-change
+  // detection to one specific key: a launch whose resolved key hashes
+  // to this value is a pending confirmation for that key (the gate),
+  // not a fresh key change (the handover). Null when no key change is
+  // awaiting confirmation.
+  pendingRecipientHash: text("pending_recipient_hash"),
   // The setupVersion of the Setup flow the user last completed. Setup
   // re-runs at launch when this differs from the current build's
   // setupVersion (held in release_info) — a bundle fingerprint change
@@ -77,6 +85,11 @@ export const deliverySlot = sqliteTable("delivery_slot", {
   recipient: text("recipient"),
   serviceLabel: text("service_label"),
   writtenAt: integer("written_at", { mode: "timestamp_ms" }),
+  // Why this delivery was made, as claimed by the caller (Muse) at
+  // setDelivery time — e.g. "rotation" for a planned key rotation.
+  // Data for the page's wording only: no launch condition, gate, or
+  // check ever reads it.
+  reason: text("reason"),
 });
 
 // Persisted recipient: a single row (id = 1) holding the recipient most
@@ -90,4 +103,7 @@ export const persistedRecipient = sqliteTable("persisted_recipient", {
   id: integer("id").primaryKey(),
   recipient: text("recipient"),
   writtenAt: integer("written_at", { mode: "timestamp_ms" }),
+  // The reason carried from the delivery that persisted this
+  // recipient (see delivery_slot.reason) — wording data only.
+  reason: text("reason"),
 });
