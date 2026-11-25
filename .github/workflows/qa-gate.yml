@@ -63,7 +63,7 @@ name: QA Gate
 on:
   pull_request_target:
     branches: [main]
-    # edited: only a base change matters (the script ignores title or body edits).
+    # edited: a base change resets the gate; a title or body edit re-derives it.
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
 permissions:
@@ -201,7 +201,7 @@ jobs:
             exit 1
           elif [[ ! "$WHEN" > "$FIRST" ]]; then
             # ISO 8601 UTC times sort as strings.
-            echo "QA Approved ($WHEN) predates $HEAD's first QA Gate status ($FIRST); not approving"
+            echo "QA Approved ($WHEN) doesn't come after $HEAD's first QA Gate status ($FIRST); not approving"
             unapproved_head "QA Approved doesn't count: it was applied before this commit; re-apply it after review"
           else
             post success "QA testing completed"
