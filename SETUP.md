@@ -88,7 +88,10 @@ words.
   exactly once. From the moment `setDelivery` succeeds, the app also keeps
   that key, and every later launch uses it. Calling `setDelivery`
   again replaces both the waiting delivery and the kept key; it does not
-  stack. `getDeliveryStatus` shows only hashes, never a key: the waiting
+  stack. Make one `setDelivery` call at a time: wait for it to return
+  before any other, and don't retry one that is still running. Then
+  confirm the result with step G4's `persistedRecipientHash` check.
+  `getDeliveryStatus` shows only hashes, never a key: the waiting
   delivery's, and the kept key's (`persistedRecipientHash`). If
   `setDelivery` refuses what you gave it, stop and check what you derived —
   do not retry with variations.
@@ -99,7 +102,7 @@ words.
   order at every later presentation too: delivery first, then the app.
   The app keeps the delivered key, so a launch you did not precede still
   uses it, but the habit costs nothing. When you change the key, follow
-  "Rotation with the app" below: in the current build (proto-wizard-1.9)
+  "Rotation with the app" below: in the current build (proto-wizard-1.9.1)
   the check of the new key runs in the same sitting, and the app won't
   encrypt to a key that differs from a confirmed one until it matches.
 - Never deliver, paste or dictate the private key anywhere. It is never
@@ -173,7 +176,7 @@ words.
   (R1 to R6) governs any store behind Save, with the same rule: evaluate,
   show the evidence, let the user choose, and record the choice and the
   approval they gave (Allow or Allow Always) as the core's step 8 requires.
-- In the current build (proto-wizard-1.9), direct the user to the Copy
+- In the current build (proto-wizard-1.9.1), direct the user to the Copy
   choice. A Save-route blob reaches you only as a tool result
   (`fetchBlob`), which core v0.3.2 says is never to be staged. Save also
   keeps the ciphertext in the app's own storage, a staging area, not the
@@ -226,7 +229,7 @@ and retiring the old key (step 5) stay on your side. The app never touches
 a private key. Only the user's side of step 3 changes. The core has the
 user replace their `handoff-<name>.age` and run the script's fingerprint
 check. With the app, it goes like this, in the current build
-(proto-wizard-1.9):
+(proto-wizard-1.9.1):
 
 - **Approval.** The user's recorded approval to use the app as their side
   despite the known gap (above) covers a rotation's delivery too. If your
