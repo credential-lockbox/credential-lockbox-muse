@@ -1,4 +1,4 @@
-// Credential Lockbox — Wizard Prototype (proto-wizard-1.9).
+// Credential Lockbox — Wizard Prototype (proto-wizard-1.9.1).
 //
 // Two wizards:
 //   SETUP — Introduction → Your copy of the key → Sending to Muse
@@ -64,13 +64,13 @@ const FIELDS = actionFields<typeof Actions>();
  * whenever the shipped page changes. A fingerprint change by itself no
  * longer re-runs Setup or the key check — that trigger is the Setup
  * flow's own version (setupVersion, held in the release info). */
-const BUILD_FINGERPRINT = "proto-wizard-1.9";
+const BUILD_FINGERPRINT = "proto-wizard-1.9.1";
 
 /** Short build hash shown on the provenance line's second line: the
  * first 8 hex characters of the SHA-256 of BUILD_FINGERPRINT, typed in
  * by hand whenever the fingerprint is bumped (nothing computes it at
  * build time). It identifies the release, not the code: see #4. */
-const BUILD_HASH = "ae84473a";
+const BUILD_HASH = "3aa75990";
 
 /** Fallback for the release info's setupVersion before it loads (and
  * for an install whose release info predates the field). */
@@ -507,6 +507,14 @@ export function App() {
     queryFn: () => api.getWizardPrefs({}),
   });
   const prefs = prefsQuery.data;
+  // Whether the prefs read has completed successfully. The A1
+  // invariant fails CLOSED on this flag: while the prefs have not
+  // loaded (the read failed, or has not finished), the app must not
+  // offer encryption — an unloaded pin would otherwise read as "no
+  // pin" and let encryption proceed unchecked. The launch decision
+  // below already waits for prefs; the error state and the encrypt
+  // handler both check this flag too.
+  const prefsLoaded = prefsQuery.isSuccess;
   const completions = prefs?.completions ?? 0;
 
   // The only prefs the page may write directly (L1): the welcome
@@ -1212,6 +1220,16 @@ export function App() {
   }
 
   async function handleEncrypt() {
+    if (!prefsLoaded) {
+      // Fail closed (A1): the prefs never loaded, so this page cannot
+      // know whether a confirmed pin exists. Refuse here in the
+      // handler itself, not only on the screen — an unloaded pin must
+      // never read as "no pin, encrypting allowed".
+      setEncryptError(
+        "This app could not load its settings, so it can't encrypt. Try opening it again.",
+      );
+      return;
+    }
     if (effectiveRecipient == null) {
       // No key has been delivered: the app must not encrypt. The
       // Encrypt flow's entry already shows the waiting state, so this
@@ -1377,6 +1395,41 @@ export function App() {
           </header>
           <main className="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col px-5 py-3">
             <p className="text-lg text-[var(--dim)]">Loading…</p>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  if (!prefsLoaded) {
+    // Fail closed (A1): the prefs read failed, so the app cannot know
+    // its confirmed pin or setup state. It must NOT land on Encrypt
+    // Step 1, where an unloaded pin would read as "no pin" and let
+    // encryption proceed unchecked. A plain error state instead; the
+    // encrypt handler refuses on the same flag as a backstop.
+    return (
+      <div className="lockbox-shell h-dvh overflow-hidden bg-[var(--bg)] text-[var(--text)]">
+        <div className="density-scope flex h-full flex-col">
+          <SafeAreaTopScrim backgroundColor="var(--bg)" />
+          <header className="mx-auto w-full max-w-xl shrink-0 px-5 pb-1 pt-3">
+            <div className="flex items-center gap-3">
+              <img
+                src={lockboxIconUrl}
+                alt=""
+                aria-hidden="true"
+                className="header-icon shrink-0"
+              />
+              <span className="flex-1" aria-hidden="true" />
+            </div>
+          </header>
+          <main className="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col px-5 py-3">
+            <h1 className="screen-heading text-3xl font-bold leading-tight">
+              Something went wrong
+            </h1>
+            <p className="mt-4 text-lg leading-relaxed" role="alert">
+              This app could not load its settings, so it can't encrypt anything. Try
+              opening it again.
+            </p>
           </main>
         </div>
       </div>
