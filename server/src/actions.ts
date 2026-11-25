@@ -122,7 +122,7 @@ type ReleaseInfoRow = typeof schema.releaseInfo.$inferSelect;
 
 /** The build version this server code ships with. The release-info row is
  * seeded to match it, so a fresh install reports "no release available". */
-const CURRENT_BUILD_VERSION = "proto-wizard-1.9";
+const CURRENT_BUILD_VERSION = "proto-wizard-1.9.1";
 
 /** The version of the Setup flow this build ships. Setup re-runs at
  * launch only when the user's completed setupVersion differs from it
@@ -441,7 +441,7 @@ export const Actions = {
 
   checkKey: defineAction({
     description:
-      "The key check, server-side: compares a candidate copy of Muse's key against the PERSISTED recipient held here — the client never compares against a locally held key string and never writes the pin itself. On a match ONLY, pins the confirmation (the persisted recipient's SHA-256 hash, the check time, and the current build fingerprint), clears the pending confirmation and the pending recipient hash, and returns match:true. On a mismatch — including a malformed candidate or no persisted key — it changes nothing and returns match:false. Returns only the boolean: never any key material and never any hash.",
+      "The key check, server-side: compares a candidate copy of Muse's key against the PERSISTED recipient held here — the client never compares against a locally held key string and never writes the pin itself. On a match ONLY, pins the confirmation (the persisted recipient's SHA-256 hash, the check time, and the current build fingerprint), clears the pending confirmation and the pending recipient hash, clears the persisted recipient's stored reason (a 'rotation' reason ends at confirmation), and returns match:true. On a mismatch — including a malformed candidate or no persisted key — it changes nothing and returns match:false. Returns only the boolean: never any key material and never any hash.",
     request: z.object({
       candidate: z.string().min(1).max(10000),
     }),
@@ -469,6 +469,15 @@ export const Actions = {
           pendingRecipientHash: null,
         })
         .where(eq(schema.wizardPrefs.id, 1));
+      // The rotation ends at confirmation: a "rotation" reason stored
+      // with the persisted recipient justified the calmer handover
+      // wording only until this key was confirmed. Clear it now, so a
+      // later unrelated key change is not shown with the rotated-key
+      // wording. The recipient itself is untouched.
+      await db
+        .update(schema.persistedRecipient)
+        .set({ reason: null })
+        .where(eq(schema.persistedRecipient.id, 1));
       ctx.invalidateQueries();
       return { match: true };
     },
@@ -747,9 +756,17 @@ export const Actions = {
           .returning({ id: schema.deliverySlot.id });
         if (cleared.length > 0) {
           // Consuming a delivery persists its recipient (with its
-          // reason), so later launches resolve the same key from the
-          // persisted slot.
-          await persistRecipient(ctx, row.recipient, row.reason ?? null);
+          // reason) ONLY when no persisted recipient is currently
+          // stored (persist-if-absent), so later launches resolve the
+          // same key from the persisted slot. It must never overwrite
+          // a stored recipient: two consumers plus an interleaved
+          // setDelivery could otherwise roll the persisted key back
+          // to an older one. (setDelivery still replaces the persisted
+          // recipient immediately — that path is unchanged.)
+          const stored = await loadPersistedRecipient(ctx);
+          if (stored == null) {
+            await persistRecipient(ctx, row.recipient, row.reason ?? null);
+          }
           ctx.invalidateQueries();
           return {
             delivered: true,
