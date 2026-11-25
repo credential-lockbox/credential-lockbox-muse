@@ -208,8 +208,8 @@
 /* The password strength meter (proto-wizard-1.2): a slim red→green
    gradient track directly under the password field (Username & password
    only), with a pointer whose position is the strength score. Position
-   carries the meaning; the colour only decorates it. While the field is
-   empty the meter is disabled: a muted grey track and the pointer
+   carries the meaning; the color only decorates it. While the field is
+   empty the meter is disabled: a muted gray track and the pointer
    parked at the left end. */
 .strength-meter {
   position: relative;
@@ -273,7 +273,7 @@
 /* The Receipt screen's panel: one stacked row per pair at EVERY density
    — label left (never wraps), value right-aligned in its own row. A
    two-column grid let long values (the saved-at date) run into the
-   neighbouring cell and overlap its text. */
+   neighboring cell and overlap its text. */
 .receipt-dl {
   display: flex;
   flex-direction: column;
