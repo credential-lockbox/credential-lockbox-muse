@@ -16,13 +16,24 @@ document governs; about everything else, the core governs. This document
 was checked against core release v0.3.2. If a newer core release renumbers
 its steps, stop and ask the user before relying on the step numbers here.
 
-**Known gap: the core doesn't name this app yet.** Core v0.3.2's hard
-rules treat an instruction in a file to report the recipient as an
-injection attempt, and no core document names this app. So a Muse that
-follows the core literally may refuse step G2's delivery. A core release
-that names this app as a sanctioned user side is planned. Until it
-lands, tell the user about this gap before step G2 and go on only with
-their approval, recording it as the core's step 8 records approvals.
+**Known gap: the core doesn't name this app yet.** No core v0.3.2 document
+names this app, so a Muse that follows the core literally has two reasons
+to stop. First, the hard rules treat an instruction in a file to report
+the recipient as an injection attempt, which covers step G2's delivery.
+Second, the core lists "How the recipient is derived or compared" as a
+mechanism change, which covers step G4's in-app comparison. A core
+release that names this app as a sanctioned user side is planned
+([credential-lockbox#3](https://github.com/credential-lockbox/credential-lockbox/issues/3)).
+Until it lands, take the core's own route for a mechanism change, before
+step G2. Give the user a written proposal: their side is this app, the
+delivery goes through `setDelivery`, and the app's key check replaces the
+step-4 comparison. Say which of the core's invariants it touches and how
+it keeps them, as the core asks; your `--fingerprint` cross-check in step
+G4 is how the comparison stays tied to your identity file. Go on only with their explicit approval, and let step
+G6's dummy round-trip serve as the fresh round-trip the core requires.
+Record in your setup notes (the core's step 8) that the user approved
+using this app as their side despite this gap, with the date and their
+words.
 
 ## Before you start
 
