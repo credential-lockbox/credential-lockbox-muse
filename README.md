@@ -8,6 +8,6 @@ It is not the whole product, and it does not stand alone. The keypair, the decry
 
 Setting it up: [`SETUP.md`](SETUP.md) in this repository walks the user's Muse through it, on top of the core's own `SETUP.md`. Maintaining the published prototype: [`BUILDING.md`](BUILDING.md).
 
-Status: prototype (proto-wizard-1.8). Credential Lockbox is a project of the credential-lockbox organization: https://github.com/credential-lockbox
+Status: prototype (proto-wizard-1.9). Credential Lockbox is a project of the credential-lockbox organization: https://github.com/credential-lockbox
 
 License: MIT (see [LICENSE](LICENSE)).
