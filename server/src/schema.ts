@@ -11,6 +11,10 @@ export const savedBlobs = sqliteTable("saved_blobs", {
   label: text("label").notNull(),
   blob: text("blob").notNull(),
   sha256: text("sha256").notNull(),
+  // SHA-256 hash of the recipient the client encrypted this blob to,
+  // supplied by the client at deposit time. Null for items saved
+  // before the recipient was recorded per save.
+  recipientHash: text("recipient_hash"),
   status: text("status", { enum: ["staged"] }).notNull().default("staged"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
@@ -72,5 +76,18 @@ export const deliverySlot = sqliteTable("delivery_slot", {
   id: integer("id").primaryKey(),
   recipient: text("recipient"),
   serviceLabel: text("service_label"),
+  writtenAt: integer("written_at", { mode: "timestamp_ms" }),
+});
+
+// Persisted recipient: a single row (id = 1) holding the recipient most
+// recently delivered through the Delivery Slot, kept across launches so
+// the app encrypts to the delivered key — never a built-in fallback —
+// on every launch, not only the one that consumed the delivery. Holds
+// a PUBLIC key only. The value is returned to the client only through
+// the consume-at-launch path; status and prefs actions expose at most
+// its hash.
+export const persistedRecipient = sqliteTable("persisted_recipient", {
+  id: integer("id").primaryKey(),
+  recipient: text("recipient"),
   writtenAt: integer("written_at", { mode: "timestamp_ms" }),
 });

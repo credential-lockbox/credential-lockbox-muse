@@ -1,4 +1,4 @@
-// Credential Lockbox — Wizard Prototype (proto-wizard-1.5).
+// Credential Lockbox — Wizard Prototype (proto-wizard-1.8).
 //
 // Two wizards:
 //   SETUP — Introduction → Your copy of the key → Sending to Muse
@@ -19,17 +19,26 @@
 //
 // Muse's key reaches the page through the Delivery Slot: a one-shot
 // server-side record Muse writes before presenting the page. At
-// launch the app consumes it — a delivered key whose hash differs from
-// the confirmed pin is a key change (this sitting shows the handover
-// and sets confirmation pending), and a delivered service label
-// pre-fills Encrypt Step 1.
+// launch the app consumes it. A key change is judged against the key
+// the app will actually use — the recipient resolved at this launch,
+// whether delivered this launch or persisted from an earlier one: when
+// no confirmation is already pending and that key's hash differs from
+// an existing confirmed pin, it is a key change (this sitting shows the
+// handover and sets confirmation pending). When a confirmation is
+// already pending, the key check opens as a gate instead. With no pin
+// yet, a differing key is not a change, and a pending confirmation
+// opens the key check as a gate (the G4 ruling). A delivered service
+// label pre-fills Encrypt Step 1. The delivered recipient is also
+// persisted server-side, so on later launches the consume path returns
+// the persisted key: the app encrypts to the delivered key every time.
+// There is NO built-in fallback recipient — when no key has ever been
+// delivered, the app shows a waiting state and cannot encrypt.
 //
 // Encryption happens entirely in this page with the bundled
 // `age-encryption` 0.3.1 (typage) library: one X25519 recipient, binary
 // format, base64 on a single line. The only thing any server action ever
 // receives is the finished ciphertext blob — plaintext never leaves the
-// device. This prototype is wired to the published dummy test recipient;
-// its private key is public in the test suite, so nothing real belongs here.
+// device.
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -42,19 +51,17 @@ import lockboxIconUrl from "./assets/credential-lockbox-icon.png";
 
 const FIELDS = actionFields<typeof Actions>();
 
-const TEST_RECIPIENT =
-  "age1lq77lgg9uqfvezeaznhchgssx58yq347v27ur2u346c9rx9m996qperxhs";
-
 /** This build's fingerprint (the provenance line's version). Bumped
  * whenever the shipped page changes. A fingerprint change by itself no
  * longer re-runs Setup or the key check — that trigger is the Setup
  * flow's own version (setupVersion, held in the release info). */
-const BUILD_FINGERPRINT = "proto-wizard-1.5";
+const BUILD_FINGERPRINT = "proto-wizard-1.8";
 
 /** Short build hash shown on the provenance line's second line: the
- * first 8 hex characters of the SHA-256 of the build fingerprint,
- * computed at build time. */
-const BUILD_HASH = "f5166323";
+ * first 8 hex characters of the SHA-256 of BUILD_FINGERPRINT, typed in
+ * by hand whenever the fingerprint is bumped (nothing computes it at
+ * build time). It identifies the release, not the code: see #4. */
+const BUILD_HASH = "1b3d4ed9";
 
 /** Fallback for the release info's setupVersion before it loads (and
  * for an install whose release info predates the field). */
@@ -295,11 +302,16 @@ export function App() {
     recipient: string;
     serviceLabel: string | null;
   } | null>(null);
+  // Muse's key for this launch, as resolved by the consume-at-launch
+  // path: a delivery consumed at this launch, else the persisted
+  // recipient from an earlier delivery, else null — there is no
+  // built-in fallback key. While null, the app shows a waiting state
+  // and cannot encrypt or display a key.
+  const [launchRecipient, setLaunchRecipient] = useState<string | null>(null);
   const [deliveryChecked, setDeliveryChecked] = useState(false);
   const consumeStartedRef = useRef(false);
-  // Muse's key for this launch: the delivered recipient when the slot
-  // carried one, otherwise the built-in dummy test recipient.
-  const museRecipient = delivery?.recipient ?? TEST_RECIPIENT;
+  const museRecipient = launchRecipient;
+  const hasRecipient = museRecipient != null;
 
   const [screen, setScreen] = useState<ScreenState>({ kind: "encrypt", step: 1 });
   // Secondary screens (the Setup & reset hub and everything opened from
@@ -403,11 +415,12 @@ export function App() {
   // info the agent maintains. Setup re-runs at launch only when the
   // user's completed setupVersion differs from this.
   const currentSetupVersion = release?.setupVersion ?? FALLBACK_SETUP_VERSION;
-  // Provenance self-check: the page compares its own build fingerprint
-  // against the expected value recorded in the stored release info. A
-  // mismatch means this page differs from the build it was installed
-  // from — an honesty label for deliberate customization, not a
-  // security claim.
+  // Provenance self-check: the page compares its own version
+  // (BUILD_FINGERPRINT) with the latest release version Muse recorded in
+  // the release info. A mismatch means the two version strings differ:
+  // usually a newer release is out, or the copy was renumbered on
+  // purpose. It compares versions, not code, so it is a label, not a
+  // security claim (see #4).
   const isCustomBuild = release ? release.latestVersion !== BUILD_FINGERPRINT : false;
 
   // Whether the opening screen has been decided from the loaded prefs yet.
@@ -440,15 +453,20 @@ export function App() {
   const recipientRaw = recipient.replace(/\s/g, "");
   const recipientCheck = validateRecipient(recipientRaw);
   const recipientValid = recipientCheck.ok;
-  const keysMatch = recipientValid && recipientRaw === museRecipient;
+  const keysMatch = recipientValid && museRecipient != null && recipientRaw === museRecipient;
   // Any non-empty input that does not match — partial, garbled, or a
   // complete but different key — hard-blocks, with no override.
   const keysMismatch = recipientRaw !== "" && !keysMatch;
-  const keyCheckCanProceed = keysMatch || (recipientRaw === "" && bypassKeyCheck);
+  const keyCheckCanProceed =
+    hasRecipient && (keysMatch || (recipientRaw === "" && bypassKeyCheck));
   // Whether the delivered key differs from the confirmed pin — the other
   // trigger for the key handover's "key updated" framing.
   const [deliveredHash, setDeliveredHash] = useState<string | null>(null);
   useEffect(() => {
+    if (museRecipient == null) {
+      setDeliveredHash(null);
+      return;
+    }
     void sha256Hex(museRecipient).then(setDeliveredHash);
   }, [museRecipient]);
   const keyChangedFromPin =
@@ -464,22 +482,30 @@ export function App() {
   // the checkbox was not rendered, yet Next still waited for its tick —
   // a dead end with no visible way forward.
   const handoverGate = !prefs?.setupCompleted || keyUpdated || setupVersionRerun;
-  // What encryption actually uses: Muse's key. In every reachable flow
-  // the key check either matched the user's copy against it or was
-  // deliberately bypassed, so this is the key credentials encrypt to.
+  // What encryption actually uses: Muse's key — the delivery consumed
+  // at this launch, or the persisted recipient from an earlier
+  // delivery. In every reachable flow the key check either matched the
+  // user's copy against it or was deliberately bypassed, so this is
+  // the key credentials encrypt to. Null when no key has ever been
+  // delivered: then nothing encrypts.
   const effectiveRecipient = museRecipient;
 
   // Consume the Delivery Slot exactly once, at launch: whatever Muse
-  // left there is picked up and the slot is empty again. A malformed
-  // recipient in the slot is ignored (the built-in key stands in).
+  // left there is picked up and the slot is empty again. The consume
+  // path also returns the persisted recipient when no delivery is
+  // waiting, so the launch resolves the delivered key either way. A
+  // malformed recipient is ignored — the launch then has no key.
   useEffect(() => {
     if (consumeStartedRef.current) return;
     consumeStartedRef.current = true;
     void (async () => {
       try {
         const result = await api.consumeDelivery({});
-        if (result.delivered && result.recipient && validateRecipient(result.recipient).ok) {
-          setDelivery({ recipient: result.recipient, serviceLabel: result.serviceLabel });
+        if (result.recipient && validateRecipient(result.recipient).ok) {
+          setLaunchRecipient(result.recipient);
+          if (result.delivered) {
+            setDelivery({ recipient: result.recipient, serviceLabel: result.serviceLabel });
+          }
         }
       } catch {
         // No delivery could be read: the launch proceeds without one.
@@ -491,10 +517,16 @@ export function App() {
 
   // Decide the opening screen once the prefs, the release info and the
   // Delivery Slot have all been read. In order:
-  //   1. A delivered key whose hash differs from the confirmed pin is
-  //      a key change: this sitting shows the handover so the user can
-  //      save the new copy, and confirmation is set pending for the
-  //      next launch.
+  //   1. A key change is judged against the key the app will actually
+  //      use — the resolved recipient, delivered this launch OR
+  //      persisted from an earlier delivery — whenever no confirmation
+  //      is already pending: if that key's hash differs from an
+  //      existing confirmed pin, this sitting shows the handover so
+  //      the user can save the new copy, and confirmation is set
+  //      pending for the next launch. With no pin yet, a differing key
+  //      is not a change — the launch falls through to the
+  //      confirmation gate (branch 3) when one is pending (the G4
+  //      ruling).
   //   2. Setup runs when it has never completed, or when the Setup
   //      flow's version has changed since the user completed it. (A
   //      bundle fingerprint change alone no longer re-runs anything.)
@@ -509,10 +541,12 @@ export function App() {
       setSvc(sanitizeService(delivery.serviceLabel, true));
     }
     void (async () => {
-      const hash = await sha256Hex(museRecipient.trim());
+      const hash = museRecipient ? await sha256Hex(museRecipient.trim()) : null;
       if (
-        delivery &&
+        (delivery || !prefs.confirmationPending) &&
+        hash != null &&
         prefs.setupCompleted &&
+        prefs.confirmedRecipientHash != null &&
         prefs.confirmedRecipientHash !== hash
       ) {
         setPrefsMutation.mutate({ confirmationPending: true });
@@ -558,6 +592,7 @@ export function App() {
    * and clear any pending confirmation. Called only on a genuine
    * match — never on the bypass. */
   function pinKeyConfirmation() {
+    if (effectiveRecipient == null) return;
     setGateNotice(false);
     void (async () => {
       const hash = await sha256Hex(effectiveRecipient.trim());
@@ -722,6 +757,7 @@ export function App() {
    * The confirmation lives on the button ("✓ Copied"); no text line
    * appears. A failed copy simply leaves the button unchecked. */
   async function handleCopyKey() {
+    if (museRecipient == null) return;
     try {
       await navigator.clipboard.writeText(museRecipient);
       setKeyCopied(true);
@@ -732,6 +768,7 @@ export function App() {
 
   /** Setup screen: download the user's copy of Muse's key as a .txt file. */
   function handleDownloadKey() {
+    if (museRecipient == null) return;
     const text = [
       "Credential Lockbox — your copy of Muse's key",
       "",
@@ -816,7 +853,17 @@ export function App() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: async () => await api.depositBlob({ label: svc.trim(), blob }),
+    mutationFn: async () =>
+      await api.depositBlob({
+        label: svc.trim(),
+        blob,
+        // Record the hash of the key this page encrypted the blob to.
+        // The server stores whatever hash the caller sends, unchecked,
+        // so it records what the page reported; it proves nothing.
+        recipientHash: effectiveRecipient
+          ? await sha256Hex(effectiveRecipient.trim())
+          : null,
+      }),
     onSuccess: (result) => {
       if (result.ok && result.receipt) {
         setReceipt({
@@ -898,6 +945,13 @@ export function App() {
   }
 
   async function handleEncrypt() {
+    if (effectiveRecipient == null) {
+      // No key has been delivered: the app must not encrypt. The
+      // Encrypt flow's entry already shows the waiting state, so this
+      // is only a backstop.
+      setEncryptError("This app is still waiting for your Muse to send it the key.");
+      return;
+    }
     setEncryptError("");
     setEncrypting(true);
     try {
@@ -1101,7 +1155,7 @@ export function App() {
               setSetupReason("normal");
               setScreen({ kind: "encrypt", step: 1 });
             },
-            disabled: handoverGate && !copySaved,
+            disabled: !hasRecipient || (handoverGate && !copySaved),
           },
         };
       } else if (keyUpdated) {
@@ -1110,7 +1164,7 @@ export function App() {
           next: {
             label: "Continue to the key check",
             onClick: () => showKeyCheck("flow"),
-            disabled: handoverGate && !copySaved,
+            disabled: !hasRecipient || (handoverGate && !copySaved),
           },
         };
       } else {
@@ -1119,7 +1173,7 @@ export function App() {
           next: {
             label: "Next",
             onClick: () => setScreen({ kind: "setup", mode: "flow", step: "sending" }),
-            disabled: handoverGate && !copySaved,
+            disabled: !hasRecipient || (handoverGate && !copySaved),
           },
         };
       }
@@ -1164,7 +1218,7 @@ export function App() {
         next: {
           label: "Next",
           onClick: () => setScreen({ kind: "encrypt", step: 2 }),
-          disabled: svc.trim() === "",
+          disabled: !hasRecipient || svc.trim() === "",
         },
       };
     } else if (screen.step === 2) {
@@ -1182,7 +1236,7 @@ export function App() {
         next: {
           label: encrypting ? "Encrypting…" : "Encrypt",
           onClick: () => void handleEncrypt(),
-          disabled: encrypting,
+          disabled: encrypting || !hasRecipient,
         },
       };
     } else if (screen.step === 4) {
@@ -1200,13 +1254,34 @@ export function App() {
     }
   }
 
+  /** The no-recipient state: no key has ever been delivered, so there
+   * is nothing to encrypt to and no key to show or compare against.
+   * The app waits for the user's Muse to send it the key. */
+  function renderWaitingForKey() {
+    return (
+      <>
+        <h1 className="screen-heading text-3xl font-bold leading-tight">Waiting for your Muse</h1>
+        <p className="mt-4 text-lg leading-relaxed">
+          This app is waiting for your Muse to send it the key. Ask your Muse to open
+          Credential Lockbox for you — it will send the key, and then you can carry on here.
+        </p>
+      </>
+    );
+  }
+
   /** The key check screen's content — shared by the Setup flow and the
    * hub's single-screen visit. The intro paragraph and the "delivered
    * with this page" line stay visible in every state: entering text
-   * never hides the text above the field. */
+   * never hides the text above the field. With no recipient at all
+   * there is nothing to compare against: the waiting state shows
+   * instead. */
   function renderKeyCheck() {
+    if (!hasRecipient) {
+      return <div className="contents">{renderWaitingForKey()}</div>;
+    }
     return (
       <div className={`contents ${keysMatch || keysMismatch ? "keycheck-verdict" : ""}`}>
+        <h1 className="screen-heading text-3xl font-bold leading-tight">Check Muse's key</h1>
         {gateNotice ? (
           // The gate banner is standing text: it stays visible in
           // every gate state (arrival, match, mismatch). When a
@@ -1217,7 +1292,7 @@ export function App() {
           // (the density ladder's own mechanism), and the
           // Look-closer row gives way — see theme.css and below.
           <div
-            className="mb-5 rounded-[var(--radius)] border border-[var(--warn-border)] bg-[var(--warn-bg)] px-4 py-3"
+            className="mt-5 rounded-[var(--radius)] border border-[var(--warn-border)] bg-[var(--warn-bg)] px-4 py-3"
             role="alert"
           >
             <p className="text-base font-semibold text-[var(--warn-text)]">
@@ -1226,7 +1301,6 @@ export function App() {
             </p>
           </div>
         ) : null}
-        <h1 className="screen-heading text-3xl font-bold leading-tight">Check Muse's key</h1>
         <p className="mt-3 text-base leading-relaxed">
           Paste your copy of Muse's key — the one saved when you set up Credential
           Lockbox — and this page will check it against the key delivered with this page.
@@ -1443,7 +1517,11 @@ export function App() {
               </>
             ) : null}
 
-            {screen.step === "key" ? (
+            {screen.step === "key" && !hasRecipient ? (
+              // No delivered or persisted key: the handover shows the
+              // waiting state — never a key it does not hold.
+              renderWaitingForKey()
+            ) : screen.step === "key" ? (
               <>
                 <h1 className="screen-heading text-3xl font-bold leading-tight">
                   {keyUpdated ? "Save your new copy of Muse's key" : "Your copy of Muse's key"}
@@ -1812,6 +1890,10 @@ export function App() {
           </section>
         ) : screen.kind === "keydetails" ? (
           <section aria-label="Key details" className="flex flex-1 flex-col">
+            {!hasRecipient ? (
+              renderWaitingForKey()
+            ) : (
+            <>
             <div>
               <h2 className="screen-heading text-base font-semibold text-[var(--text)]">
                 Muse's key (delivered with this page)
@@ -1843,6 +1925,8 @@ export function App() {
                 )}
               </div>
             </div>
+            </>
+            )}
           </section>
         ) : screen.kind === "sentitems" ? (
           <section aria-label="Sent to Muse in this prototype" className="flex flex-1 flex-col">
@@ -1865,6 +1949,11 @@ export function App() {
                 >
                   <span className="block font-medium">{item.label}</span>
                   <span className="mt-1 block font-mono text-xs text-[var(--dim)]">{item.sha256Short}…</span>
+                  {item.recipientHashShort ? (
+                    <span className="mt-1 block font-mono text-xs text-[var(--dim)]">
+                      Key hash: {item.recipientHashShort}…
+                    </span>
+                  ) : null}
                   <span className="mt-1 block text-xs text-[var(--dim)]">{formatTime(item.createdAt)}</span>
                 </li>
               ))}
@@ -1881,17 +1970,17 @@ export function App() {
             </p>
             <p className="mt-3 text-base leading-relaxed">
               Under it is the build checksum,{" "}
-              <span className="font-mono font-semibold">{BUILD_HASH}</span> — a short fingerprint
-              of the exact code in this build. Two pages can share a version number, but the
-              checksum only matches when the code is identical, so a screenshot identifies the
-              build precisely.
+              <span className="font-mono font-semibold">{BUILD_HASH}</span> — a short code
+              worked out from the version number. It identifies the release, not the code
+              itself: two copies built from the same release show the same checksum, even if
+              one of them has been changed.
             </p>
             <p className="mt-3 text-base leading-relaxed">
               Sometimes the checksum line also says{" "}
               <span className="font-semibold">“custom”</span>
-              {isCustomBuild ? " — and this copy says it now" : ""}. That means this copy's code
-              differs from the release it was built from, usually because you or your Muse
-              changed it on purpose. If yours says “custom” and you don't know why, ask your
+              {isCustomBuild ? " — and this copy says it now" : ""}. That means this copy's version
+              differs from the latest release your Muse has recorded: usually a newer release
+              is out, or this copy was changed and renumbered on purpose. If yours says “custom” and you don't know why, ask your
               Muse before sending anything.
             </p>
             <p className="mt-3 text-base leading-relaxed">
@@ -1938,6 +2027,12 @@ export function App() {
           <>
         {screen.kind === "encrypt" && screen.step === 1 && (
           <section aria-label="Service" className="flex flex-1 flex-col">
+            {!hasRecipient ? (
+              // No delivered or persisted key: the Encrypt flow cannot
+              // start — the waiting state shows instead of the form.
+              renderWaitingForKey()
+            ) : (
+            <>
             <h1 className="screen-heading text-3xl font-bold leading-tight">Which service is this for?</h1>
             <div className="mt-4">
               <label htmlFor="svc-input" className={labelClass}>
@@ -1994,6 +2089,8 @@ export function App() {
                 ))}
               </div>
             </fieldset>
+            </>
+            )}
           </section>
         )}
 

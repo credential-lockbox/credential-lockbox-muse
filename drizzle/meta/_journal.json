@@ -78,6 +78,27 @@
       "when": 1795468124512,
       "tag": "0011_record_1_5_expected_fingerprint",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1795575228602,
+      "tag": "0012_persist_recipient_and_record_recipient_hash_per_save",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1795631829459,
+      "tag": "0013_record_1_7_expected_fingerprint",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1795633552706,
+      "tag": "0014_record_1_8_expected_fingerprint",
+      "breakpoints": true
     }
   ]
 }

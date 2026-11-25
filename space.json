@@ -1,8 +1,8 @@
 {
-  "runtime": "typescript",
-  "platformVersion": 29,
   "entry": "client/dist/index.html",
+  "managedCronJobs": [],
   "name": "Credential Lockbox Wizard Prototype",
-  "slug": "credential-lockbox-wizard-prototype",
-  "managedCronJobs": []
+  "platformVersion": 31,
+  "runtime": "typescript",
+  "slug": "credential-lockbox-wizard-prototype"
 }
