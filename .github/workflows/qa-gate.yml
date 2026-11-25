@@ -134,14 +134,15 @@ jobs:
             edited)
               if [ "$BASE_CHANGED" = true ]; then
                 unapproved_head "QA Approved doesn't count: the PR was retargeted; re-apply it after review"
-              else
-                echo "Edited without a base change: nothing to do"
+                exit 0
               fi
-              exit 0
+              # A title or body edit: decide the gate from the PR as it is
+              # now, like a label event. This run may have replaced a queued
+              # push run, so it must not do nothing.
               ;;
           esac
 
-          # labeled / unlabeled: decide from the PR as it is now, not the event payload.
+          # labeled / unlabeled / edited: decide from the PR as it is now, not the event payload.
           # A command substitution, not a process substitution: under set -e a
           # failed API call then fails the job, instead of reading as an empty
           # head and exiting green on the "stale event" path.
