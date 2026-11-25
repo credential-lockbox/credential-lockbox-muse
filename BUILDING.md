@@ -2,7 +2,7 @@
 
 This document is for maintainers of the published prototype Space. It isn't install instructions.
 
-**Installing Credential Lockbox on your Muse?** The install guide (`SETUP.md`, coming to this repository) is the path: it has your Muse build this source as a new Space of its own, through its own artifact tools. Until it's published, there's no supported install, and the maintainer can be asked through an issue. The maintenance steps below are about the published prototype. The facts about how a Space is built and how its data is handled apply to any Space built from this source, an installed one included.
+**Installing Credential Lockbox on your Muse?** The install guide, [`SETUP.md`](SETUP.md), is the path: it has your Muse build this source as a new Space of its own, through its own artifact tools. The maintenance steps below are about the published prototype. The facts about how a Space is built and how its data is handled apply to any Space built from this source, an installed one included.
 
 ## What's here
 
