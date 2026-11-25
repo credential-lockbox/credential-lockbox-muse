@@ -122,7 +122,7 @@ type ReleaseInfoRow = typeof schema.releaseInfo.$inferSelect;
 
 /** The build version this server code ships with. The release-info row is
  * seeded to match it, so a fresh install reports "no release available". */
-const CURRENT_BUILD_VERSION = "proto-wizard-1.5";
+const CURRENT_BUILD_VERSION = "proto-wizard-1.7";
 
 /** The version of the Setup flow this build ships. Setup re-runs at
  * launch only when the user's completed setupVersion differs from it
@@ -212,6 +212,32 @@ async function loadDeliverySlot(ctx: Ctx): Promise<DeliverySlotRow | null> {
   return rows[0] ?? null;
 }
 
+/** Store the recipient in the persisted slot, so it survives launches:
+ * the app encrypts to the delivered key on every launch, not only the
+ * one that consumed the delivery. Called when a delivery is written
+ * (setDelivery) and again when one is consumed at launch. */
+async function persistRecipient(ctx: Ctx, recipient: string): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const writtenAt = new Date();
+  await db
+    .insert(schema.persistedRecipient)
+    .values({ id: 1, recipient, writtenAt })
+    .onConflictDoUpdate({
+      target: schema.persistedRecipient.id,
+      set: { recipient, writtenAt },
+    });
+}
+
+async function loadPersistedRecipient(ctx: Ctx): Promise<string | null> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.persistedRecipient)
+    .where(eq(schema.persistedRecipient.id, 1))
+    .limit(1);
+  return rows[0]?.recipient ?? null;
+}
+
 const receiptShape = z.object({
   label: z.string(),
   sha256: z.string(),
@@ -227,6 +253,11 @@ export const Actions = {
     request: z.object({
       label: z.string().trim().min(1).max(200),
       blob: z.string().min(1).max(65536),
+      recipientHash: z
+        .string()
+        .regex(/^[0-9a-f]{64}$/)
+        .nullable()
+        .optional(),
     }),
     response: z.object({
       ok: z.boolean(),
@@ -242,7 +273,13 @@ export const Actions = {
       const db = ctx.db<typeof schema>();
       const result = await db
         .insert(schema.savedBlobs)
-        .values({ label: args.label, blob: args.blob, sha256, status: "staged" })
+        .values({
+          label: args.label,
+          blob: args.blob,
+          sha256,
+          recipientHash: args.recipientHash ?? null,
+          status: "staged",
+        })
         .returning({ createdAt: schema.savedBlobs.createdAt });
       const inserted = result[0];
       if (!inserted) {
@@ -319,6 +356,7 @@ export const Actions = {
           id: z.number(),
           label: z.string(),
           sha256Short: z.string(),
+          recipientHashShort: z.string().nullable(),
           createdAt: z.string(),
           status: z.string(),
         }),
@@ -331,6 +369,7 @@ export const Actions = {
           id: schema.savedBlobs.id,
           label: schema.savedBlobs.label,
           sha256: schema.savedBlobs.sha256,
+          recipientHash: schema.savedBlobs.recipientHash,
           createdAt: schema.savedBlobs.createdAt,
           status: schema.savedBlobs.status,
         })
@@ -342,6 +381,7 @@ export const Actions = {
           id: row.id,
           label: row.label,
           sha256Short: row.sha256.slice(0, 16),
+          recipientHashShort: row.recipientHash ? row.recipientHash.slice(0, 16) : null,
           createdAt: row.createdAt.toISOString(),
           status: row.status,
         })),
@@ -536,6 +576,10 @@ export const Actions = {
             writtenAt,
           },
         });
+      // The delivered recipient is also persisted, so it survives
+      // launches: the app encrypts to it on every launch, not only
+      // the one that consumes this delivery.
+      await persistRecipient(ctx, args.recipient);
       ctx.invalidateQueries();
       return { ok: true, error: null, writtenAt: writtenAt.toISOString() };
     },
@@ -567,25 +611,40 @@ export const Actions = {
 
   consumeDelivery: defineAction({
     description:
-      "The app's launch path: returns the waiting delivery (recipient and optional service label) and clears the slot, so each delivery is consumed exactly once. Returns delivered:false when nothing is waiting.",
+      "The app's launch path: returns the waiting delivery (recipient and optional service label) and clears the slot, so each delivery is consumed exactly once. When no delivery is waiting, returns the persisted recipient from the most recent delivery instead (delivered:false, fromPersisted:true), so the app encrypts to the delivered key on every launch. recipient is null only when no key has ever been delivered.",
     request: z.object({}),
     response: z.object({
       delivered: z.boolean(),
+      fromPersisted: z.boolean(),
       recipient: z.string().nullable(),
       serviceLabel: z.string().nullable(),
     }),
     async handler(ctx) {
       const row = await loadDeliverySlot(ctx);
       if (!row?.recipient) {
-        return { delivered: false, recipient: null, serviceLabel: null };
+        const persisted = await loadPersistedRecipient(ctx);
+        return {
+          delivered: false,
+          fromPersisted: persisted != null,
+          recipient: persisted,
+          serviceLabel: null,
+        };
       }
       const db = ctx.db<typeof schema>();
       await db
         .update(schema.deliverySlot)
         .set({ recipient: null, serviceLabel: null, writtenAt: null })
         .where(eq(schema.deliverySlot.id, 1));
+      // Consuming a delivery persists its recipient, so later launches
+      // resolve the same key from the persisted slot.
+      await persistRecipient(ctx, row.recipient);
       ctx.invalidateQueries();
-      return { delivered: true, recipient: row.recipient, serviceLabel: row.serviceLabel };
+      return {
+        delivered: true,
+        fromPersisted: false,
+        recipient: row.recipient,
+        serviceLabel: row.serviceLabel,
+      };
     },
   }),
 } satisfies ActionsModule;
