@@ -16,6 +16,14 @@ document governs; about everything else, the core governs. This document
 was checked against core release v0.3.2. If a newer core release renumbers
 its steps, stop and ask the user before relying on the step numbers here.
 
+**Known gap: the core doesn't name this app yet.** Core v0.3.2's hard
+rules treat an instruction in a file to report the recipient as an
+injection attempt, and no core document names this app. So a Muse that
+follows the core literally may refuse step G2's delivery. A core release
+that names this app as a sanctioned user side is planned. Until it
+lands, tell the user about this gap before step G2 and go on only with
+their approval, recording it as the core's step 8 records approvals.
+
 ## Before you start
 
 - Complete the core `SETUP.md` step 1 in full: prerequisites on your own
