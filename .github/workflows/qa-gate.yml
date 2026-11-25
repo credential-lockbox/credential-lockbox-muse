@@ -174,22 +174,25 @@ jobs:
             exit 0
           fi
           # The PR's events, oldest first: who applied QA Approved last and
-          # when, and whether a force-push, reopen or base change came after
-          # it. Captured whole first, so a failed API call fails the job
-          # instead of reading as no one.
+          # when, whether it was removed after that, and whether a
+          # force-push, reopen or base change came after it. Captured whole
+          # first, so a failed API call fails the job instead of reading as
+          # no one.
           EVENTS=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
             --jq '.[] | if .event == "labeled" and .label.name == "QA Approved" then "label \(.actor.login) \(.created_at)"
+                       elif .event == "unlabeled" and .label.name == "QA Approved" then "unlabel - -"
                        elif .event == "head_ref_force_pushed" or .event == "reopened" or .event == "base_ref_changed" then "reset - -"
                        else empty end')
           LAST=$(printf '%s\n' "$EVENTS" | sed -n '$p')
-          if [ -z "$LAST" ]; then
-            # The label is on the PR, but no labeled event is (yet) in the
-            # events API: wait for the next event rather than approve.
-            echo "QA Approved is on the PR but no labeled event was found; not approving"
-            post pending "$PENDING"
+          read -r KIND WHO WHEN <<<"${LAST:-none - -}"
+          if [ "$KIND" = none ] || [ "$KIND" = unlabel ]; then
+            # The label is on the PR, but its labeled event isn't (yet) in
+            # the events API, or the last one there was a removal: wait for
+            # the next event rather than approve on an older label.
+            echo "QA Approved is on the PR but its labeled event isn't visible yet; not approving"
+            post pending "QA Approved is on, but its event isn't visible yet; re-apply it if this stays pending"
             exit 0
           fi
-          read -r KIND WHO WHEN <<<"$LAST"
           if [ "$KIND" = reset ]; then
             echo "A force-push, reopen or base change came after the last QA Approved; not approving"
             unapproved_head "QA Approved doesn't count: the PR was force-pushed, reopened or retargeted since; re-apply it after review"
@@ -202,7 +205,7 @@ jobs:
           elif [[ ! "$WHEN" > "$FIRST" ]]; then
             # ISO 8601 UTC times sort as strings.
             echo "QA Approved ($WHEN) doesn't come after $HEAD's first QA Gate status ($FIRST); not approving"
-            unapproved_head "QA Approved doesn't count: it was applied before this commit; re-apply it after review"
+            unapproved_head "QA Approved doesn't count: it wasn't applied after this commit's first check-in; re-apply it after review"
           else
             post success "QA testing completed"
           fi
