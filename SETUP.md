@@ -19,8 +19,9 @@ screen where the user saves their copy. Steps G1 to G7 below do that, and
 say how the core's steps 4 to 6 and 8 look with the app. "Rotation with
 the app" does the same for the user's side of the core's `ROTATION.md`
 step 3. This document was checked against core release v0.4.0. If a newer
-core release renumbers the steps or items of either file, stop and ask the
-user before relying on the numbers here.
+core release renumbers or renames the steps, items or sections this
+document names, or changes `ROTATION.md` step 3's paragraph for the app,
+stop and ask the user before relying on what this document says of them.
 
 A setup that follows the core's section and this document is not a
 mechanism change, and needs no separate proposal. Anything the core's
@@ -211,8 +212,9 @@ are superseded (the core's section says so).
   SHA-256 of the bare `age1…` value, without the `recipient: ` prefix
   (`printf '%s' '<age1…>' | sha256sum`, with no trailing newline; on macOS,
   `shasum -a 256` if `sha256sum` is missing). Compare the hex before the
-  trailing `-`, which both print. That catches a delivery made from the wrong identity,
-  which the in-app check can't: the user's copy came from the same
+  trailing `-`, which both print. That catches a delivery made from the
+  wrong identity, which the in-app check can't: the user's copy came from
+  the same
   delivery.
 - Be plain about what the check proves. It catches a wrong copy and a
   mistyped one. A copy the user re-saves from the app matches by
@@ -256,8 +258,9 @@ are superseded (the core's section says so).
   (metadata only) with `limit: 100`, its maximum (the default lists only
   the newest 20), and check that no item's `sha256Short` equals the blob's
   code: `printf '%s' '<blob>' | sha256sum | cut -c1-16`, with no trailing
-  newline (on macOS, `shasum -a 256` in place of `sha256sum`). If it returns 100 items, older ones aren't listed: say so in
-  your notes. A match means the same blob is also Saved in the app. Treat it
+  newline (on macOS, `shasum -a 256` if `sha256sum` is missing). If it
+  returns 100 items, older ones aren't listed: say so in your notes. A
+  match means the same blob is also Saved in the app. Treat it
   as a copy kept beside the key (the core's invariants 2 and 5): don't
   fetch it or stage it. Have the user encrypt that credential again and
   paste it, and record the Saved copy in your notes. If it holds a real
@@ -353,8 +356,8 @@ The steps:
    deliver. A page left open, in another tab or on another device, keeps
    the key it launched with, so ask them to close every copy of the app
    (the core's item 5). Reopening a panel can resume the old page instead
-   of loading a fresh one (step G4), and an old page still encrypts to the
-   old key; step 5 says how that shows up. Then tell them what's
+   of loading a fresh one (step G4), and an old page can still encrypt to
+   the old key; step 5 says how that shows up. Then tell them what's
    happening:
    - **Routine:** you are replacing your key as planned, and they will
      save their copy of the new key in their password manager, in place
@@ -369,8 +372,9 @@ The steps:
    `reason`", above), so it means someone else called `setDelivery`: a
    stop for you too. You can't read the stored reason, so run step G4's
    cross-check at once and tell the user whether the key the app keeps is
-   still yours. Deliver again (with no `reason`, which clears it) only on
-   their go-ahead in a direct turn.
+   still yours. If it isn't, that's also step G2's mismatch stop: find
+   the cause first. Deliver again (with no `reason`, which clears it) only
+   on their go-ahead in a direct turn.
 2. **Deliver the new key.** After `--rotate`, do `ROTATION.md` step 3's
    `--fingerprint` check: it must print the recipient `--rotate` printed.
    Get the bare `age1…` line from `agent-setup.sh --public-key` (step G2;
@@ -402,8 +406,8 @@ The steps:
      until the check matches. A reset ("Reset this wizard", in Setup &
      reset) forgets the key as well: the app waits for a delivery, and
      `persistedRecipientHash` reads null, which is a stop (step G2).
-   - Not to encrypt a real credential until you've compared their new
-     copy in chat (step 4). A dummy, if you ask for one, is fine.
+   - Don't encrypt a real credential until you've compared their new copy
+     in chat (step 4). A dummy, if you ask for one, is fine.
 4. **Confirm in chat before you record `ROTATION.md` step 3.** The copy
    the user checks in the app came from the app's own delivery, so the
    in-app match proves only that they saved and pasted it correctly.
@@ -432,11 +436,12 @@ The steps:
      exposed too. They change it at its service again and paste a fresh
      blob at Compromise step 5, encrypted in a page opened after the
      delivery. A blob pasted at Compromise step 5 that won't decrypt is a
-     stop (the core's item 5). It was encrypted to some key other than
-     the new one: a copy still on the leaked key (an old page, or a script
-     file not yet updated) is one cause, and an age blob doesn't say which
-     key it was made for. So treat that credential as exposed too, whatever
-     the cause; that goes a step past the core's text.
+     stop (the core's item 5). It may have been encrypted to some key
+     other than the new one (a copy still on the leaked key, such as an
+     old page or a script file not yet updated), or damaged on the way,
+     and an age blob doesn't say which key it was made for. So treat that
+     credential as exposed too, whatever the cause; that goes a step past
+     the core's text.
 6. **The script.** If the user also uses the command-line script (step
    G7), its side of `ROTATION.md` step 3 still applies as the core writes
    it: they replace `handoff-<name>.age` and check its fingerprint. The
