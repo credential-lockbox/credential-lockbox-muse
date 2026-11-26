@@ -317,9 +317,10 @@ user replace their `handoff-<name>.age` and run the script's fingerprint
 check. With the app, it goes like this, in the current build
 (proto-wizard-1.9.1):
 
-- **Approval.** The user's recorded approval to use the app as their side
-  despite the known gap (above) covers a rotation's delivery too. If your
-  notes don't record that approval, get it before you deliver.
+- **The delivery is allowed.** The core's item 5 allows a delivery that
+  comes from its `ROTATION.md` step 3, once the user's choice of the app
+  (Before you start) and your build (step G1) are recorded. If your notes
+  don't record the user's choice, get it before you deliver.
 - **On your side,** after `--rotate` (step 2), do step 3's `--fingerprint`
   check: it must print the recipient `--rotate` printed. Deliver that
   recipient with `setDelivery`, passing only the bare `age1…` line (step
