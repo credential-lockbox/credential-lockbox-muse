@@ -237,7 +237,8 @@ step 4. Both are superseded (the core's section says so).
   after every encryption, so tell the user not to press it. Be plain about
   why if they ask.
 - **Before you stage a blob the user made in the app,** call `listSaved`
-  (metadata only) and check that no item's `sha256Short` equals the blob's
+  (metadata only) with `limit: 100`, its maximum (the default lists only
+  the newest 20), and check that no item's `sha256Short` equals the blob's
   code: `printf '%s' '<blob>' | sha256sum | cut -c1-16`, with no trailing
   newline. A match means the same blob is also Saved in the app. Treat it
   as a copy kept beside the key (the core's invariants 2 and 5): don't
