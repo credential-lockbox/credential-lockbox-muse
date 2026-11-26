@@ -152,7 +152,8 @@ are superseded (the core's section says so).
   "Rotation with the app" below: in the current build (proto-wizard-1.9.1)
   the check of the new key runs in the same sitting when the old key was
   confirmed, and the app won't encrypt to a key that differs from a
-  confirmed one until it matches.
+  confirmed one until it matches (a reset from Setup & reset starts it
+  over as a first setup).
 - Never deliver, paste or dictate the private key anywhere. It is never
   shown on any screen, including this app's.
 
@@ -352,9 +353,12 @@ The steps:
    - **Compromise:** in plain terms, every staged credential must be
      treated as exposed (the core's "Compromise"), and they will save
      their copy of the new key in place of the old one. Don't call it
-     planned.
-2. **Deliver the new key.** After `--rotate`, do step 3's `--fingerprint`
-   check: it must print the recipient `--rotate` printed. Get the bare
+     planned. Tell them too that if the app says the change was planned
+     or that nothing is wrong, that isn't true: they stop and tell you.
+     You never set that wording in a compromise, so it means someone else
+     called `setDelivery`, and it's a stop for you too.
+2. **Deliver the new key.** After `--rotate`, do the core's step 3
+   `--fingerprint` check: it must print the recipient `--rotate` printed. Get the bare
    `age1…` line from `agent-setup.sh --public-key` (step G2; never from
    `--rotate`'s output or your notes) and deliver it with `setDelivery`,
    with every copy of the app closed. For a routine rotation only, also
@@ -377,11 +381,14 @@ The steps:
    - If it says the keys don't match because they haven't saved the new
      copy yet, use "Has your Muse given you a new key, or rotated its key?
      Get your new copy..." there.
+   - If their new copy doesn't match, stop and tell you; never work around
+     it (a stop, as in the core's step 3).
    - Never pick "Continue without checking the key" during a rotation. If
      no check had succeeded before, the app doesn't block encrypting to
      the new key unchecked; if one had, it won't encrypt to the new key
-     until the check matches.
-4. **Confirm in chat before you record step 3.** The copy the user checks
+     until the check matches (unless the app was reset from Setup &
+     reset, which starts it over as a first setup).
+4. **Confirm in chat before you record the core's step 3.** The copy the user checks
    in the app came from the app's own delivery, so the in-app match proves
    only that they saved and pasted it correctly. Compare their new copy
    with `--fingerprint` in chat, as step G4 says for a re-saved copy, then
@@ -389,20 +396,21 @@ The steps:
    separately: it has passed when `getWizardPrefs` shows
    `confirmedRecipientHash` equal to the new key's SHA-256 (a hint, not
    proof: anything that holds the public key can call `checkKey`). If it
-   hasn't, record the app's check as pending. That doesn't hold up step 3
-   or step 4.
+   hasn't, record the app's check as pending. That doesn't hold up the
+   core's step 3 or its step 4.
 5. **End the reason.** A stored reason stays with the app's key until its
-   check matches (`checkKey` clears it then) or a delivery replaces it. If
-   you deliver again during the rotation (before a presentation, step G2),
-   pass the same reason as in step 2. At the retire, if the app's check
-   still hasn't passed, deliver the same key once more with no `reason`,
-   with every copy closed, then repeat step G4's cross-check. After that,
-   never pass a reason, so a later mismatch on a lost or wrong copy
-   doesn't read as a planned rotation.
+   check matches (`checkKey` clears it then), a reset clears it, or a
+   delivery replaces it. If you deliver again during the rotation (before
+   a presentation, step G2), pass the same reason as in step 2 above. At
+   the retire, always deliver the same key once more with no `reason`,
+   with every copy closed, whether or not the app's check has passed, then
+   repeat step G4's cross-check. After that, never pass a reason, so a
+   later mismatch on a lost or wrong copy doesn't read as a planned
+   rotation.
 6. **Blobs.**
    - **Routine:** store each pasted blob as the core's "Staging during a
      rotation" says. If its staging probe shows the blob decrypted with
-     the previous key after step 3's confirmation, report it, and have the
+     the previous key after the core's step 3 confirmation, report it, and have the
      user close every copy of the app opened before the delivery, on every
      device (and update the script's file too, if they use it, step G7).
      Before the confirmation, that's expected. Blobs pasted before the
@@ -414,13 +422,13 @@ The steps:
      core's "Staging during a rotation" says: before the new key is in
      place it's encrypted to the leaked key, so that credential counts as
      exposed too. They change it at its service again and paste a fresh
-     blob at step 5, encrypted in a page opened after the delivery. A
-     step-5 blob that won't decrypt is a stop (the core's item 5). If it
+     blob at Compromise step 5, encrypted in a page opened after the
+     delivery. A blob pasted at Compromise step 5 that won't decrypt is a stop (the core's item 5). If it
      came from a copy still on the leaked key (an old page, or a script
      file not yet updated), treat that credential as exposed too, for the
      same reason; that goes a step past the core's text.
 7. **The script.** If the user also uses the command-line script (step
-   G7), its side of step 3 still applies as the core writes it: they
+   G7), its side of the core's step 3 still applies as the core writes it: they
    replace `handoff-<name>.age` and check its fingerprint. The app holds no
    blobs you rely on (step G5).
 
@@ -434,8 +442,9 @@ rotation, in "Rotation with the app"); the app says the key has changed
 when you didn't tell the user first that you changed it; the user cannot
 find the copy they saved; before a rotation, a recorded build version
 other than `proto-wizard-1.9.1`, or a missing core paragraph ("Two
-stops before `--rotate`", in "Rotation with the app"). For a
-lost copy (the app's wording is "Lost your copy? Ask your Muse to send it
+stops before `--rotate`", in "Rotation with the app"); in a compromise
+response, the app saying the change was planned or that nothing is wrong
+(step 1 there). For a lost copy (the app's wording is "Lost your copy? Ask your Muse to send it
 again."): the key itself has not changed, and no new key is generated. The
 user re-saves it from the app's Setup & reset screen (the gear button),
 row "Your copy of Muse's key". Don't send them through the mismatch box's "Get your new
