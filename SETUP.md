@@ -16,10 +16,12 @@ release v0.4.0). That section governs. Where this document and it
 disagree, the core wins. Its step 3 hands the app's part of setup to this
 document: building the app, delivering your key to it, and the handover
 screen where the user saves their copy. Steps G1 to G7 below do that, and
-say how the core's steps 4 to 6 and 8 look with the app. This document was
-checked against core release v0.4.0. If a newer core release renumbers its
-steps or its items, stop and ask the user before relying on the numbers
-here.
+say how the core's steps 4 to 6 and 8 look with the app. "Rotation with
+the app" does the same for the user's side of the core's `ROTATION.md`
+step 3. This document was checked against core release v0.4.0. If a newer
+core release renumbers or renames the steps, items or sections this
+document names, or changes `ROTATION.md` step 3's paragraph for the app,
+stop and ask the user before relying on what this document says of them.
 
 A setup that follows the core's section and this document is not a
 mechanism change, and needs no separate proposal. Anything the core's
@@ -116,14 +118,18 @@ are superseded (the core's section says so).
   secret and may travel through chat, but the app has a designed channel
   for it: call the app's `setDelivery` action — a server action of the
   Space you built, invoked through the same artifact tooling you built it
-  with. Pass it only the bare `age1…` line: `--public-key` also prints
+  with. Pass it only the bare `age1…` line, and never its optional
+  `reason` (see "Rotation with the app"): `--public-key` also prints
   instructions for saving a key file beside the handoff script, which are
   for the script route, not for the app user. A delivery waits in the app's
   delivery slot until the app takes it up at a launch, which it does
   exactly once. From the moment `setDelivery` succeeds, the app also keeps
-  that key and encrypts to it on every later launch. Calling `setDelivery`
+  that key, and every later launch uses it. Calling `setDelivery`
   again replaces both the waiting delivery and the kept key; it does not
-  stack. `getDeliveryStatus` shows only hashes, never a key: the waiting
+  stack. Make one `setDelivery` call at a time: wait for it to return
+  before any other, and don't retry one that is still running. Then
+  confirm the result with step G4's `persistedRecipientHash` check.
+  `getDeliveryStatus` shows only hashes, never a key: the waiting
   delivery's, and the kept key's (`persistedRecipientHash`). If
   `setDelivery` refuses what you gave it, stop and check what you derived —
   do not retry with variations.
@@ -144,15 +150,8 @@ are superseded (the core's section says so).
   app, then tell you in chat (step G7; the core's item 9). Keep this
   order at every later presentation too: delivery first, then the app.
   The app keeps the delivered key, so a launch you did not precede still
-  uses it, but the habit costs nothing. Two exceptions, written for
-  proto-wizard-1.8 (the 1.9 behavior is #11's), both after you change the
-  key:
-  - If the user had already confirmed the old key in the app, the check of
-    the new key opens only on a launch with no fresh delivery. For that one
-    launch, present the app without delivering again.
-  - If no check had succeeded yet, the next launch opens the check, and the
-    user's old copy won't match. Tell them in chat first that you changed
-    the key, so they use "Get your new copy..." there.
+  uses it, but the habit costs nothing. When you change the key, follow
+  "Rotation with the app" below, which says what the app does then.
 - Never deliver, paste or dictate the private key anywhere. It is never
   shown on any screen, including this app's.
 
@@ -183,32 +182,39 @@ are superseded (the core's section says so).
   setup ends with the user's copy saved and the confirmation pending, and
   the app opens on the check the next time it is launched. When you next
   present the app, deliver the key again first (step G2), so the launch
-  the check rides on is one you prepared. After a key change, follow the
-  exceptions in step G2 instead.
+  the check rides on is one you prepared. A key change works differently
+  (see "Rotation with the app").
 - The app's check runs at a fresh page load: reopening its panel resumes
-  the old page and doesn't run it. When a key confirmation is pending, the app usually opens on a check screen
-  before anything else (after a key change, the handover comes first): the user pastes their saved copy back, the app compares
-  it with the key it holds, and the match is confirmed on the spot. A
-  mismatch is the core's stop condition arriving in the app, and it is
-  yours too: stop, and work out with the user which copy is wrong before
-  going on. The app doesn't enforce that by itself. The user can clear the
-  field and continue without checking, and the mismatch box offers "Get
-  your new copy...". Tell the user to use that only after you have told
-  them in chat that you changed the key. Never suggest continuing past a
-  mismatch "just this once", and never ask the user to paste a credential
-  instead.
-- The user may choose "Continue without checking the key" in the app; the
-  check then stays pending and returns at the next launch. Record that
-  they deferred it. Until a check has succeeded once, treat the setup as
-  unconfirmed in your summary.
+  the old page and doesn't run it. When a key confirmation is pending, the
+  app usually opens on a check screen before anything else (a newly
+  changed key, or a changed Setup flow, can put another screen first).
+  The user pastes their saved copy back, the app checks it against the key
+  it holds (on the server, through `checkKey`), and the match is confirmed
+  on the spot. A mismatch is the core's stop condition
+  arriving in the app, and it is yours too: stop, and work out with the
+  user which copy is wrong before going on. On this first-setup check, the
+  app doesn't enforce that by itself. The user can clear the field and
+  continue without checking, and the mismatch box offers "Get your new
+  copy...". Tell the user to use that only after you have told them in chat
+  that you changed the key. Never suggest continuing past a mismatch "just
+  this once", and never ask the user to paste a credential instead.
+- On this first-setup check, the user may choose "Continue without
+  checking the key"; the check then stays pending and returns at the next
+  launch. Record that they deferred it. Until a check has succeeded once,
+  treat the setup as unconfirmed in your summary. (The check after a
+  change from a confirmed key has no such choice: see "Rotation with the
+  app".)
 - Your side of the comparison stays available: `agent-setup.sh
   --fingerprint` prints the recipient from the identity file whenever
   either of you needs to cross-check what the app holds. Run it after each
   delivery too. Check that its `key file:` line is the identity your notes
   record, and that `getDeliveryStatus`'s `persistedRecipientHash` equals the
   SHA-256 of the bare `age1…` value, without the `recipient: ` prefix
-  (`printf '%s' '<age1…>' | sha256sum`, with no trailing newline). That catches a delivery made from the wrong identity,
-  which the in-app check can't: the user's copy came from the same
+  (`printf '%s' '<age1…>' | sha256sum`, with no trailing newline; on macOS,
+  `shasum -a 256` if `sha256sum` is missing). Compare the hex before the
+  trailing `-`, which both print. That catches a delivery made from the
+  wrong identity, which the in-app check can't: the user's copy came from
+  the same
   delivery.
 - Be plain about what the check proves. It catches a wrong copy and a
   mistyped one. A copy the user re-saves from the app matches by
@@ -252,8 +258,9 @@ are superseded (the core's section says so).
   (metadata only) with `limit: 100`, its maximum (the default lists only
   the newest 20), and check that no item's `sha256Short` equals the blob's
   code: `printf '%s' '<blob>' | sha256sum | cut -c1-16`, with no trailing
-  newline. If it returns 100 items, older ones aren't listed: say so in
-  your notes. A match means the same blob is also Saved in the app. Treat it
+  newline (on macOS, `shasum -a 256` if `sha256sum` is missing). If it
+  returns 100 items, older ones aren't listed: say so in your notes. A
+  match means the same blob is also Saved in the app. Treat it
   as a copy kept beside the key (the core's invariants 2 and 5): don't
   fetch it or stage it. Have the user encrypt that credential again and
   paste it, and record the Saved copy in your notes. If it holds a real
@@ -302,18 +309,160 @@ are superseded (the core's section says so).
   `consume.py` reads the same way — and needs its own key confirmation
   (the core's steps 3 and 4) before first use.
 
+## Rotation with the app (the user's side of the core's `ROTATION.md` step 3)
+
+The core's `ROTATION.md` governs a rotation and a compromise response, as
+written. The decision to rotate, the new keypair (`--rotate`), the private
+key, rewrapping and retiring the old key stay on your side. The app never
+touches a private key. Only the user's side of `ROTATION.md` step 3
+changes: the core has the user replace their `handoff-<name>.age` and run
+the script's fingerprint check, and with the app it goes as below. Read
+this section before the core's Routine step 2 (or Compromise step 3),
+since its first two checks come before `--rotate`.
+
+- **Which text governs.** This section is the instruction for a build whose
+  recorded commit's `SETUP.md` has it (check with `git show
+  <commit>:SETUP.md` in the fresh clone step G1 uses). For a build recorded
+  at an earlier commit, the core's `ROTATION.md` step 3 governs (its
+  paragraph for the app), not this section. A rotation that follows either
+  isn't a mechanism change. The core's item 5 allows the delivery on either
+  of its grounds: the instruction comes from `ROTATION.md` step 3, and,
+  for a build whose recorded commit has this section, from this document
+  at that commit. Either way, its items 1 and 2 must hold: the user's
+  choice of the app is recorded (Before you start), and the build is
+  yours, per step G1, and unchanged since.
+- **Two stops before `--rotate`.** If the build's version your notes record
+  (step G1) isn't `proto-wizard-1.9.1`, stop and ask the user: the app's
+  wording below is 1.9.1's. For a build the core's paragraph governs, if
+  `ROTATION.md` step 3 has no paragraph for the app, stop and ask the user
+  too (a rebuild at a commit that has this section is a mechanism change,
+  step G1).
+- **Routine or compromise.** The steps are the same for both, apart from
+  the wording you use with the user, and blobs. In a compromise response,
+  follow the core's "Compromise" for everything on your side: step
+  numbers there are Compromise's, you don't rewrap, and the old key is
+  retired right away.
+- **No `reason`.** Never pass `setDelivery`'s optional `reason`, in a
+  rotation or anywhere else. With `reason: "rotation"` the app calls the
+  change planned and says nothing is wrong, and anything that can call
+  `setDelivery` can set it. A delivery without one clears any reason
+  stored earlier. So once you've delivered, planned wording in the app
+  means someone else called `setDelivery`. The user hears that the change
+  is planned from you, in chat (step 1 below).
+
+The steps:
+
+1. **Close every open copy, and tell the user,** in chat, before you
+   deliver. A page left open, in another tab or on another device, keeps
+   the key it launched with, so ask them to close every copy of the app
+   (the core's item 5). Reopening a panel can resume the old page instead
+   of loading a fresh one (step G4), and an old page can still encrypt to
+   the old key; step 5 says how that shows up. Then tell them what's
+   happening:
+   - **Routine:** you are replacing your key as planned, and they will
+     save their copy of the new key in their password manager, in place
+     of the old one.
+   - **Compromise:** in plain terms, every staged credential must be
+     treated as exposed (the core's "Compromise"), and they will save
+     their copy of the new key in place of the old one. Don't call it
+     planned.
+
+   Either way, if the app says the change was planned or that nothing is
+   wrong, they stop and tell you. You never set that wording ("No
+   `reason`", above), so it means someone else called `setDelivery`: a
+   stop for you too. You can't read the stored reason, so run step G4's
+   cross-check at once and tell the user whether the key the app keeps is
+   still yours. If it isn't, that's also step G2's mismatch stop: find
+   the cause first. Deliver again (with no `reason`, which clears it) only
+   on their go-ahead in a direct turn.
+2. **Deliver the new key.** After `--rotate`, do `ROTATION.md` step 3's
+   `--fingerprint` check: it must print the recipient `--rotate` printed.
+   Get the bare `age1…` line from `agent-setup.sh --public-key` (step G2;
+   never from `--rotate`'s output or your notes) and deliver it with
+   `setDelivery`, with no `reason` and every copy of the app closed. If
+   the app shows its key-change screen, it reads "Save your new copy of
+   Muse's key" and "Muse's key has changed — the old copy will no longer
+   match, so replace it with this one." Then do all of step G4's
+   cross-check (the `key file:` line, and `persistedRecipientHash` equal
+   to the SHA-256 of the bare line), and record it (the core's item 5).
+3. **Tell the user what to do in the app.** Which screen opens first
+   depends on the app's state (whether a key check had succeeded, whether
+   its Setup flow changed), so give them these instructions, which hold
+   on every path, instead of predicting the screen:
+   - When the app shows Muse's key or says it has changed, save that copy
+     in their password manager, in place of the old one.
+   - When it asks for their copy, paste the new one from their password
+     manager.
+   - If it asks for their copy before they've saved the new one, paste
+     the copy they have (the old one). It won't match, and the mismatch
+     box then offers "Has your Muse given you a new key, or rotated its
+     key? Get your new copy...": use that to save the new copy, then
+     paste it.
+   - If their new copy doesn't match, stop and tell you; never work around
+     it (a stop, as in `ROTATION.md` step 3).
+   - Never pick "Continue without checking the key" during a rotation. If
+     no check had succeeded before, the app doesn't block encrypting to
+     the new key unchecked; if one had, it won't encrypt to the new key
+     until the check matches. A reset ("Reset this wizard", in Setup &
+     reset) forgets the key as well: the app waits for a delivery, and
+     `persistedRecipientHash` reads null, which is a stop (step G2).
+   - Don't encrypt a real credential until you've compared their new copy
+     in chat (step 4). A dummy, if you ask for one, is fine.
+4. **Confirm in chat before you record `ROTATION.md` step 3.** The copy
+   the user checks in the app came from the app's own delivery, so the
+   in-app match proves only that they saved and pasted it correctly.
+   Compare their new copy with `--fingerprint` in chat, as step G4 says
+   for a re-saved copy, then record that the user confirmed the new key,
+   and tell them they can encrypt real credentials again. Record the
+   app's own check separately: it has passed when `getWizardPrefs` shows
+   `confirmedRecipientHash` equal to the new key's SHA-256 (a hint, not
+   proof: anything that holds the public key can call `checkKey`). If it
+   hasn't, record the app's check as pending. That doesn't hold up
+   `ROTATION.md` step 3 or its step 4.
+5. **Blobs.**
+   - **Routine:** store each pasted blob as the core's "Staging during a
+     rotation" says. If its staging probe shows the blob decrypted with
+     the previous key after `ROTATION.md` step 3's confirmation, report
+     it, and have the user close every copy of the app opened before the
+     delivery, on every device (and update the script's file too, if they
+     use it, step G7). Before the confirmation, that's expected. Blobs
+     pasted before the rotation were staged by you, so rewrapping them
+     (`ROTATION.md` step 4) is yours.
+   - **Compromise:** don't store any blob pasted before the core's
+     Compromise step 5, and don't keep it to store later (a blob in your
+     notes is never staged). Tell the user it waits, and why, as the
+     core's "Staging during a rotation" says: before the new key is in
+     place it's encrypted to the leaked key, so that credential counts as
+     exposed too. They change it at its service again and paste a fresh
+     blob at Compromise step 5, encrypted in a page opened after the
+     delivery. A blob pasted at Compromise step 5 that won't decrypt is a
+     stop (the core's item 5). It may have been encrypted to some key
+     other than the new one (a copy still on the leaked key, such as an
+     old page or a script file not yet updated), or damaged on the way,
+     and an age blob doesn't say which key it was made for. So treat that
+     credential as exposed too, whatever the cause; that goes a step past
+     the core's text.
+6. **The script.** If the user also uses the command-line script (step
+   G7), its side of `ROTATION.md` step 3 still applies as the core writes
+   it: they replace `handoff-<name>.age` and check its fingerprint. The
+   app holds no blobs you rely on (step G5).
+
 ## Stop conditions specific to the app
 
 In addition to the core's: the app refuses a delivered recipient; the app
 build fails or comes up without its server actions; `persistedRecipientHash`
 doesn't match your recipient's SHA-256 (step G2); the key check in the
-app reports a mismatch; the app says the key has changed when you didn't
-tell the user first that you changed it; the user cannot find the copy
-they saved. For a
-lost copy (the app's wording is "Lost your copy? Ask your Muse to send it
-again."): the key itself has not changed, and no new key is generated. The
-user re-saves it from the app's Setup & reset screen (the gear button),
-row "Your copy of Muse's key". Don't send them through the mismatch box's "Get your new
-copy..." route, which tells them the key has changed. Then confirm the
-re-saved copy against `--fingerprint` in chat (step G4), since a copy taken
-from the app proves nothing by itself.
+app reports a mismatch (except the old copy's expected mismatch during a
+rotation, in "Rotation with the app"); the app says the key has changed
+when you didn't tell the user first that you changed it; the user cannot
+find the copy they saved; before a rotation, a recorded build version
+other than `proto-wizard-1.9.1`, or a missing core paragraph ("Two
+stops before `--rotate`", in "Rotation with the app"); during a rotation,
+planned wording in the app (step 1 there). For a lost copy (the
+app's wording is "Lost your copy? Ask your Muse to send it again."): the
+key itself has not changed, and no new key is generated. The user
+re-saves it from the app's Setup & reset screen (the gear button), row
+"Your copy of Muse's key". Don't send them through the mismatch box's
+"Get your new copy..." route, which tells them the key has changed. Then
+confirm the re-saved copy against `--fingerprint` in chat (step G4), since
+a copy taken from the app proves nothing by itself.

@@ -8,6 +8,6 @@ It is not the whole product, and it does not stand alone. The keypair, the decry
 
 The core names this app as an optional user side, from release [v0.4.0](https://github.com/credential-lockbox/credential-lockbox/releases/tag/v0.4.0) (its `SETUP.md`, "The app as the user's side"). The script stays the default. Setting it up: [`SETUP.md`](SETUP.md) in this repository walks the user's Muse through it, on top of the core's own `SETUP.md`. Maintaining the published prototype: [`BUILDING.md`](BUILDING.md).
 
-Status: prototype (proto-wizard-1.8). Credential Lockbox is a project of the credential-lockbox organization: https://github.com/credential-lockbox
+Status: prototype (proto-wizard-1.9.1). Credential Lockbox is a project of the credential-lockbox organization: https://github.com/credential-lockbox
 
 License: MIT (see [LICENSE](LICENSE)).
