@@ -210,8 +210,8 @@ are superseded (the core's section says so).
   record, and that `getDeliveryStatus`'s `persistedRecipientHash` equals the
   SHA-256 of the bare `age1…` value, without the `recipient: ` prefix
   (`printf '%s' '<age1…>' | sha256sum`, with no trailing newline; on macOS,
-  `shasum -a 256` if `sha256sum` is missing; compare the hex before the
-  trailing `-`). That catches a delivery made from the wrong identity,
+  `shasum -a 256` if `sha256sum` is missing). Compare the hex before the
+  trailing `-`, which both print. That catches a delivery made from the wrong identity,
   which the in-app check can't: the user's copy came from the same
   delivery.
 - Be plain about what the check proves. It catches a wrong copy and a
@@ -256,7 +256,7 @@ are superseded (the core's section says so).
   (metadata only) with `limit: 100`, its maximum (the default lists only
   the newest 20), and check that no item's `sha256Short` equals the blob's
   code: `printf '%s' '<blob>' | sha256sum | cut -c1-16`, with no trailing
-  newline. If it returns 100 items, older ones aren't listed: say so in
+  newline (on macOS, `shasum -a 256` in place of `sha256sum`). If it returns 100 items, older ones aren't listed: say so in
   your notes. A match means the same blob is also Saved in the app. Treat it
   as a copy kept beside the key (the core's invariants 2 and 5): don't
   fetch it or stage it. Have the user encrypt that credential again and
@@ -314,9 +314,8 @@ key, rewrapping and retiring the old key stay on your side. The app never
 touches a private key. Only the user's side of `ROTATION.md` step 3
 changes: the core has the user replace their `handoff-<name>.age` and run
 the script's fingerprint check, and with the app it goes as below. Read
-this section
-before the core's Routine step 2 (or Compromise step 3), since its first
-two checks come before `--rotate`.
+this section before the core's Routine step 2 (or Compromise step 3),
+since its first two checks come before `--rotate`.
 
 - **Which text governs.** This section is the instruction for a build whose
   recorded commit's `SETUP.md` has it (check with `git show
@@ -353,7 +352,10 @@ The steps:
 1. **Close every open copy, and tell the user,** in chat, before you
    deliver. A page left open, in another tab or on another device, keeps
    the key it launched with, so ask them to close every copy of the app
-   (the core's item 5). Then tell them what's happening:
+   (the core's item 5). Reopening a panel can resume the old page instead
+   of loading a fresh one (step G4), and an old page still encrypts to the
+   old key; step 5 says how that shows up. Then tell them what's
+   happening:
    - **Routine:** you are replacing your key as planned, and they will
      save their copy of the new key in their password manager, in place
      of the old one.
@@ -373,9 +375,9 @@ The steps:
    `setDelivery`, with no `reason` and every copy of the app closed. If
    the app shows its key-change screen, it reads "Save your new copy of
    Muse's key" and "Muse's key has changed — the old copy will no longer
-   match, so replace it with this one." Then do all of step G4's cross-check (the
-   `key file:` line, and `persistedRecipientHash` equal to the SHA-256 of
-   the bare line), and record it (the core's item 5).
+   match, so replace it with this one." Then do all of step G4's
+   cross-check (the `key file:` line, and `persistedRecipientHash` equal
+   to the SHA-256 of the bare line), and record it (the core's item 5).
 3. **Tell the user what to do in the app.** Which screen opens first
    depends on the app's state (whether a key check had succeeded, whether
    its Setup flow changed), so give them these instructions, which hold
@@ -384,9 +386,9 @@ The steps:
      in their password manager, in place of the old one.
    - When it asks for their copy, paste the new one from their password
      manager.
-   - If it says the keys don't match because they haven't saved the new
-     copy yet, use "Has your Muse given you a new key, or rotated its key?
-     Get your new copy..." there.
+   - If they haven't saved the new copy yet and the app says the keys
+     don't match, use "Has your Muse given you a new key, or rotated its
+     key? Get your new copy..." there.
    - If their new copy doesn't match, stop and tell you; never work around
      it (a stop, as in `ROTATION.md` step 3).
    - Never pick "Continue without checking the key" during a rotation. If
@@ -395,13 +397,15 @@ The steps:
      until the check matches. A reset ("Reset this wizard", in Setup &
      reset) forgets the key as well: the app waits for a delivery, and
      `persistedRecipientHash` reads null, which is a stop (step G2).
+   - Not to encrypt a real credential until you've compared their new
+     copy in chat (step 4). A dummy, if you ask for one, is fine.
 4. **Confirm in chat before you record `ROTATION.md` step 3.** The copy
    the user checks in the app came from the app's own delivery, so the
    in-app match proves only that they saved and pasted it correctly.
-   Compare their new copy
-   with `--fingerprint` in chat, as step G4 says for a re-saved copy, then
-   record that the user confirmed the new key. Record the app's own check
-   separately: it has passed when `getWizardPrefs` shows
+   Compare their new copy with `--fingerprint` in chat, as step G4 says
+   for a re-saved copy, then record that the user confirmed the new key,
+   and tell them they can encrypt real credentials again. Record the
+   app's own check separately: it has passed when `getWizardPrefs` shows
    `confirmedRecipientHash` equal to the new key's SHA-256 (a hint, not
    proof: anything that holds the public key can call `checkKey`). If it
    hasn't, record the app's check as pending. That doesn't hold up
