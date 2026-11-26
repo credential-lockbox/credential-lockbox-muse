@@ -325,12 +325,16 @@ fingerprint check. With the app, it goes like this, in the current build
   core's item 5, since it comes from `ROTATION.md` step 3, once the user's
   choice of the app (Before you start) and your build (step G1) are
   recorded. If your notes don't record the user's choice, get it before
-  you deliver.
+  you deliver. The screens below are 1.9.1's: if the build's version
+  ("About this build") is another, they may differ, so stop and ask the
+  user. If you need the core's paragraph for the app and its step 3 has
+  none, stop and ask the user too (a rebuild at a commit that has this
+  section is a mechanism change, step G1).
 - **Routine or compromise.** Most of what follows is the same for both.
   Where they differ, the bullet says so. In a compromise response, follow
   the core's "Compromise" for everything on your side: step numbers there
   are Compromise's, you don't rewrap, the old key is retired right away,
-  and every pasted blob is held until its step 5.
+  and no pasted blob is stored before its step 5 (Blobs, below).
 
 Before the delivery:
 
@@ -349,8 +353,9 @@ Before the delivery:
 The delivery:
 
 - After `--rotate`, do step 3's `--fingerprint` check: it must print the
-  recipient `--rotate` printed. Deliver that recipient with `setDelivery`,
-  passing only the bare `age1…` line (step G2), while every copy of the app
+  recipient `--rotate` printed. Then get the bare `age1…` line from
+  `agent-setup.sh --public-key` (step G2; never from `--rotate`'s output or
+  your notes) and deliver it with `setDelivery`, while every copy of the app
   is closed (`setDelivery`'s own description says never while the user is
   looking at it).
 - **Routine only:** also pass `reason: "rotation"`. It changes only the
@@ -364,7 +369,8 @@ The delivery:
 - Then do all of step G4's cross-check: the `key file:` line is the
   identity your notes record, and `persistedRecipientHash` from
   `getDeliveryStatus` equals the SHA-256 of the new bare `age1…` value.
-  From that moment, every launch of the app resolves to the new key.
+  From that moment, every launch of the app resolves to the new key,
+  unless something calls `setDelivery` again: keep step G2's re-checks.
 
 What the user sees depends on whether a key check had succeeded before:
 
@@ -381,7 +387,8 @@ What the user sees depends on whether a key check had succeeded before:
   Tell them that this is expected, and that they use "Has your Muse given
   you a new key, or rotated its key? Get your new copy..." on the check.
 - **If no check had succeeded yet:** the app opens on the first-setup
-  check. The user's old copy won't match, and the app says the keys don't
+  check (if Setup was never finished, it reruns Setup instead, and its
+  handover shows the new key directly). The user's old copy won't match, and the app says the keys don't
   match. Tell them in advance that this is expected, and that they use
   "Has your Muse given you a new key, or rotated its key? Get your new
   copy..." there. That leads to the same key-change screen and a check with
@@ -413,17 +420,22 @@ After it:
   reason, so a later mismatch on a lost or wrong copy doesn't read as a
   planned rotation.
 - **Blobs, routine:** every blob from a page opened after the delivery is
-  for the new key. A page left open from before it keeps encrypting to the
-  old key, which the core's `.previous` still opens until the retire.
+  for the new key. A page left open from before it keeps the old key, and
+  can encrypt to it at least until the new key is confirmed. The core's
+  `.previous` still opens those blobs until the retire.
   During the rotation, check that each pasted blob was made for the new
   key: the core's staging probe shows which key decrypted it, and a blob
   only the previous key opens came from an old page. Blobs the user pasted
   earlier were staged by you, so rewrapping them (the core's step 4) is
   yours, as the core describes.
-- **Blobs, compromise:** hold every pasted blob until the core's Compromise
-  step 5, as its staging rule says. Don't rewrap: the old key is retired
-  right away, and a blob from an old page won't open after that. The user
-  encrypts each new credential again, in a page opened after the delivery.
+- **Blobs, compromise:** don't store any blob pasted before the core's
+  Compromise step 5, and don't keep it to store later (a blob in your notes
+  is never staged). Tell the user it waits, and why: that credential counts
+  as exposed too, so they change it at its service again and paste a fresh
+  blob at step 5 (the core's "Staging during a rotation"). Don't rewrap:
+  the old key is retired right away, and a blob from an old page won't
+  open after that. At step 5 the user encrypts each new credential, in a
+  page opened after the delivery.
 - The app holds no blobs you rely on (step G5). If the user also uses the
   command-line script (step G7), its side of step 3 still applies as the
   core writes it: they replace `handoff-<name>.age` and check its
