@@ -365,9 +365,12 @@ The steps:
      planned.
 
    Either way, if the app says the change was planned or that nothing is
-   wrong, they stop and tell you. You never set that wording ("No `reason`",
-   above), so it means someone else called `setDelivery`: a stop for you
-   too.
+   wrong, they stop and tell you. You never set that wording ("No
+   `reason`", above), so it means someone else called `setDelivery`: a
+   stop for you too. You can't read the stored reason, so run step G4's
+   cross-check at once and tell the user whether the key the app keeps is
+   still yours. Deliver again (with no `reason`, which clears it) only on
+   their go-ahead in a direct turn.
 2. **Deliver the new key.** After `--rotate`, do `ROTATION.md` step 3's
    `--fingerprint` check: it must print the recipient `--rotate` printed.
    Get the bare `age1…` line from `agent-setup.sh --public-key` (step G2;
@@ -386,9 +389,11 @@ The steps:
      in their password manager, in place of the old one.
    - When it asks for their copy, paste the new one from their password
      manager.
-   - If they haven't saved the new copy yet and the app says the keys
-     don't match, use "Has your Muse given you a new key, or rotated its
-     key? Get your new copy..." there.
+   - If it asks for their copy before they've saved the new one, paste
+     the copy they have (the old one). It won't match, and the mismatch
+     box then offers "Has your Muse given you a new key, or rotated its
+     key? Get your new copy...": use that to save the new copy, then
+     paste it.
    - If their new copy doesn't match, stop and tell you; never work around
      it (a stop, as in `ROTATION.md` step 3).
    - Never pick "Continue without checking the key" during a rotation. If
@@ -427,10 +432,11 @@ The steps:
      exposed too. They change it at its service again and paste a fresh
      blob at Compromise step 5, encrypted in a page opened after the
      delivery. A blob pasted at Compromise step 5 that won't decrypt is a
-     stop (the core's item 5). If it came from a copy still on the leaked
-     key (an old page, or a script file not yet updated), treat that
-     credential as exposed too, for the same reason; that goes a step past
-     the core's text.
+     stop (the core's item 5). It was encrypted to some key other than
+     the new one: a copy still on the leaked key (an old page, or a script
+     file not yet updated) is one cause, and an age blob doesn't say which
+     key it was made for. So treat that credential as exposed too, whatever
+     the cause; that goes a step past the core's text.
 6. **The script.** If the user also uses the command-line script (step
    G7), its side of `ROTATION.md` step 3 still applies as the core writes
    it: they replace `handoff-<name>.age` and check its fingerprint. The
