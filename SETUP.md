@@ -150,8 +150,9 @@ are superseded (the core's section says so).
   The app keeps the delivered key, so a launch you did not precede still
   uses it, but the habit costs nothing. When you change the key, follow
   "Rotation with the app" below: in the current build (proto-wizard-1.9.1)
-  the check of the new key runs in the same sitting, and the app won't
-  encrypt to a key that differs from a confirmed one until it matches.
+  the check of the new key runs in the same sitting when the old key was
+  confirmed, and the app won't encrypt to a key that differs from a
+  confirmed one until it matches.
 - Never deliver, paste or dictate the private key anywhere. It is never
   shown on any screen, including this app's.
 
@@ -186,10 +187,10 @@ are superseded (the core's section says so).
   (see "Rotation with the app").
 - The app's check runs at a fresh page load: reopening its panel resumes
   the old page and doesn't run it. When a key confirmation is pending, the
-  app usually opens on a check screen
-  before anything else. A newly changed key shows its key-change screen
-  first, and a changed Setup flow re-runs Setup first. The user pastes their saved copy back, the app checks it
-  against the key it holds (on the server, through `checkKey`), and the
+  app usually opens on a check screen before anything else. A newly
+  changed key shows its key-change screen first, and a changed Setup flow
+  re-runs Setup first. The user pastes their saved copy back, the app
+  checks it against the key it holds (on the server, through `checkKey`), and the
   match is confirmed on the spot. A mismatch is the core's stop condition
   arriving in the app, and it is yours too: stop, and work out with the
   user which copy is wrong before going on. On this first-setup check, the
@@ -322,13 +323,15 @@ fingerprint check. With the app, it goes like this, in the current build
   commit, the core's `ROTATION.md` step 3 governs (its paragraph for the
   app), not this section. A rotation that follows this section, or that
   paragraph, isn't a mechanism change. The delivery is allowed by the
-  core's item 5, since it comes from `ROTATION.md` step 3, once the user's
-  choice of the app (Before you start) and your build (step G1) are
-  recorded. If your notes don't record the user's choice, get it before
-  you deliver. The screens below are 1.9.1's: if the build's version
-  ("About this build") is another, they may differ, so stop and ask the
-  user. If you need the core's paragraph for the app and its step 3 has
-  none, stop and ask the user too (a rebuild at a commit that has this
+  core's item 5, since it comes from `ROTATION.md` step 3, once its items 1
+  and 2 hold: the user's choice of the app is recorded (Before you start),
+  and the build is yours, per step G1, and unchanged since. If your notes
+  don't record the user's choice, get it before you deliver.
+- **Two stops before you start.** For a build this section governs, the
+  screens below are 1.9.1's. If the build's version your notes record (step
+  G1) is another, stop and ask the user before `--rotate`. For a build the
+  core's paragraph governs, if the core's step 3 has no paragraph for the
+  app, stop and ask the user too (a rebuild at a commit that has this
   section is a mechanism change, step G1).
 - **Routine or compromise.** Most of what follows is the same for both.
   Where they differ, the bullet says so. In a compromise response, follow
@@ -369,8 +372,9 @@ The delivery:
 - Then do all of step G4's cross-check: the `key file:` line is the
   identity your notes record, and `persistedRecipientHash` from
   `getDeliveryStatus` equals the SHA-256 of the new bare `age1…` value.
-  From that moment, every launch of the app resolves to the new key,
-  unless something calls `setDelivery` again: keep step G2's re-checks.
+  Record it, and the reason you passed (the core's item 5). From that
+  moment, every launch of the app resolves to the new key, unless
+  something calls `setDelivery` again: keep step G2's re-checks.
 
 What the user sees depends on whether a key check had succeeded before:
 
@@ -387,8 +391,7 @@ What the user sees depends on whether a key check had succeeded before:
   Tell them that this is expected, and that they use "Has your Muse given
   you a new key, or rotated its key? Get your new copy..." on the check.
 - **If no check had succeeded yet:** the app opens on the first-setup
-  check (if Setup was never finished, it reruns Setup instead, and its
-  handover shows the new key directly). The user's old copy won't match, and the app says the keys don't
+  check. The user's old copy won't match, and the app says the keys don't
   match. Tell them in advance that this is expected, and that they use
   "Has your Muse given you a new key, or rotated its key? Get your new
   copy..." there. That leads to the same key-change screen and a check with
@@ -399,6 +402,13 @@ What the user sees depends on whether a key check had succeeded before:
   There the user pastes the new copy they saved. Ask them never to pick
   "Continue without checking the key" during a rotation: the app would let
   them encrypt to the new key unchecked.
+- **If Setup was never finished, or its flow changed:** the app reruns
+  Setup first, in either case above. Its handover is the first-setup one
+  ("Your copy of Muse's key"), with no key-changed or rotation wording,
+  and there's no check in that sitting. Tell the user in chat to save that
+  copy in place of the old one. The check comes at the next launch, as
+  after first setup (step G4): they paste the new copy there, and never
+  pick "Continue without checking the key".
 
 After it:
 
@@ -414,28 +424,38 @@ After it:
   the new key. If the app's check hasn't passed yet (the user closed the
   app, or, in the second case, skipped it), record it as pending.
 - **The reason ends at confirmation.** In this build, the app's `checkKey`
-  clears a stored reason when the new key matches. Until then, if you
-  deliver again (before you present the app, step G2), pass the same
-  `reason` as before, or none in a compromise. After it, never pass a
-  reason, so a later mismatch on a lost or wrong copy doesn't read as a
-  planned rotation.
+  clears a stored reason when the new key matches. To see whether it has,
+  read `getWizardPrefs`: the check has passed when `confirmedRecipientHash`
+  equals the new key's SHA-256 and `confirmationPending` is false. That's a
+  hint, not proof (anything that holds the public key can call
+  `checkKey`), and it's enough for this choice. Until then, if you deliver
+  again (before you present the app, step G2), pass the same `reason` as
+  before, or none in a compromise. After it, or once the old key is
+  retired, whichever comes first, never pass a reason, so a later mismatch
+  on a lost or wrong copy doesn't read as a planned rotation.
 - **Blobs, routine:** every blob from a page opened after the delivery is
   for the new key. A page left open from before it keeps the old key, and
   can encrypt to it at least until the new key is confirmed. The core's
-  `.previous` still opens those blobs until the retire.
-  During the rotation, check that each pasted blob was made for the new
-  key: the core's staging probe shows which key decrypted it, and a blob
-  only the previous key opens came from an old page. Blobs the user pasted
-  earlier were staged by you, so rewrapping them (the core's step 4) is
-  yours, as the core describes.
+  `.previous` still opens those blobs until the retire. During the
+  rotation, the core's staging probe shows which key decrypted each pasted
+  blob. One only the previous key opens came from an old page: before
+  step 3's confirmation that's expected; after it, store it as the core's
+  "Staging during a rotation" says, report it, and have the user close
+  every copy of the app opened before the delivery, on every device. Blobs
+  the user pasted earlier were staged by you, so rewrapping them (the
+  core's step 4) is yours, as the core describes.
 - **Blobs, compromise:** don't store any blob pasted before the core's
   Compromise step 5, and don't keep it to store later (a blob in your notes
-  is never staged). Tell the user it waits, and why: that credential counts
-  as exposed too, so they change it at its service again and paste a fresh
-  blob at step 5 (the core's "Staging during a rotation"). Don't rewrap:
-  the old key is retired right away, and a blob from an old page won't
-  open after that. At step 5 the user encrypts each new credential, in a
-  page opened after the delivery.
+  is never staged). Tell the user it waits, and why, as the core's
+  "Staging during a rotation" says: before the new key is in place it's
+  encrypted to the leaked key, so that credential counts as exposed too.
+  They change it at its service again and paste a fresh blob at step 5.
+  Don't rewrap. An old page can still encrypt to the leaked key, so at
+  step 5 the user encrypts each new credential in a page opened after the
+  delivery. A step-5 blob that won't open came from an old page and was
+  encrypted to the leaked key: it's a stop (the core's), and that
+  credential counts as exposed, so the user changes it again and encrypts
+  it in a page opened after the delivery.
 - The app holds no blobs you rely on (step G5). If the user also uses the
   command-line script (step G7), its side of step 3 still applies as the
   core writes it: they replace `handoff-<name>.age` and check its
@@ -449,7 +469,9 @@ doesn't match your recipient's SHA-256 (step G2); the key check in the
 app reports a mismatch (except the old copy's expected mismatch during a
 rotation, in "Rotation with the app"); the app says the key has changed
 when you didn't tell the user first that you changed it; the user cannot
-find the copy they saved. For a
+find the copy they saved; before a rotation, a build version or a missing
+core paragraph ("Two stops before you start", in "Rotation with the
+app"). For a
 lost copy (the app's wording is "Lost your copy? Ask your Muse to send it
 again."): the key itself has not changed, and no new key is generated. The
 user re-saves it from the app's Setup & reset screen (the gear button),
